@@ -95,6 +95,43 @@ export interface ValidationResult {
   errors: ValidationError[];
 }
 
+export interface DocumentRequirement {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  stepOrder: number;
+}
+
+export interface WorkflowRequirements {
+  workflowKey: string;
+  workflowTitle: string;
+  category: WorkflowCategory;
+  departmentCode: string;
+  departmentName: string;
+  pattern: WorkflowPattern;
+  responsibleRole: UserRole;
+  currentStepOrder?: number;
+  currentStepName?: string;
+  requiredFields: FieldDefinition[];
+  requiredDocuments: DocumentRequirement[];
+  requiredApprovals: Array<{
+    stepOrder: number;
+    name: string;
+    roleRequired: UserRole;
+    description: string;
+  }>;
+  steps: Array<{
+    stepOrder: number;
+    name: string;
+    roleRequired: UserRole;
+    description: string;
+    requiresDocuments: boolean;
+    requiresApproval: boolean;
+  }>;
+  submissionNotice?: string;
+}
+
 export interface CreateRequestInput {
   requesterId: string;
   workflowKey: string;
@@ -121,3 +158,4 @@ export interface ApiResponse<T = unknown> {
   error?: string;
   message?: string;
 }
+

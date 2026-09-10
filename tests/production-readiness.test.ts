@@ -304,7 +304,70 @@ export async function runProductionReadinessTests() {
     assert.strictEqual(notFoundResp.status, 404, 'Not found maps to HTTP 404');
     console.log('  ✅ PASS: 14. Standardized API error codes & HTTP statuses verified');
 
-    console.log('\n📊 Production-Readiness Test Summary: 14 Passed, 0 Failed\n');
+    // ========================================================================
+    // 6. WORKFLOW REQUIREMENTS & ADVANCE DOCUMENT SURFACING (POLISH & HARDENING)
+    // ========================================================================
+    console.log('\n--- 6. Workflow Requirements & Advance Document Surfacing ---');
+
+    // Test 15: getWorkflowRequirements single source of truth
+    const { getWorkflowRequirements } = await import('@/lib/workflows/service');
+    const certReqs = getWorkflowRequirements('CERTIFICATE_REQUEST');
+    assert.ok(certReqs !== null, 'Requirements must resolve for CERTIFICATE_REQUEST');
+    assert.strictEqual(certReqs.departmentCode, 'REGISTRAR', 'Resolves correct department code');
+    assert.strictEqual(certReqs.departmentName, 'Registrar & Academic Records', 'Resolves human-readable department name');
+    assert.ok(certReqs.requiredDocuments.length > 0, 'CERTIFICATE_REQUEST specifies required documents');
+    assert.strictEqual(certReqs.requiredDocuments[0].name, 'Student ID Card', 'Requires Student ID Card');
+    assert.strictEqual(certReqs.requiredDocuments[0].stepOrder, 1, 'Document required at Step 1');
+    assert.ok(certReqs.submissionNotice?.includes('Student ID Card'), 'Generates advance submission notice for student');
+    console.log('  ✅ PASS: 15. getWorkflowRequirements resolves single source of truth for fields, documents & department');
+
+    // Test 16: AI Intake Agent surfaces document requirements in workflowPreview
+    const intakeRes = await runIntakeAgent({
+      userId: studentA.id,
+      message: 'I need a bona fide certificate for an education loan',
+    });
+    assert.strictEqual(intakeRes.workflowKey, 'CERTIFICATE_REQUEST', 'Intake matches workflow');
+    assert.ok(intakeRes.workflowPreview?.requiredDocuments !== undefined, 'Workflow preview contains requiredDocuments');
+    assert.ok(intakeRes.workflowPreview?.requiredDocuments && intakeRes.workflowPreview.requiredDocuments.length > 0, 'Preview has at least 1 required document');
+    assert.ok(intakeRes.workflowPreview?.submissionNotice !== undefined, 'Preview contains advance submission notice');
+    console.log('  ✅ PASS: 16. AI Intake preview surfaces required documents and advance notice BEFORE submission');
+
+    // Test 17: Staff cannot proceed when document is missing (Deterministic Gating)
+    let blockedError = false;
+    try {
+      await executeWorkflowAction({
+        requestId: testReq.id,
+        actorId: staffDeptA.id,
+        action: 'APPROVE',
+      });
+    } catch (e: any) {
+      blockedError = e.message.includes('[VALIDATION_FAILED]') && e.message.includes('Required document is missing');
+    }
+    assert.strictEqual(blockedError, true, 'Staff action is deterministically blocked when required document is missing');
+    console.log('  ✅ PASS: 17. Deterministic validation blocks staff completion if document is missing');
+
+    // Test 18: Notification Idempotency prevents duplicates on replay
+    const { createIdempotentNotification } = await import('@/lib/notifications/service');
+    const testNotifKey = `test-notif-key-${Date.now()}`;
+    const notif1 = await createIdempotentNotification({
+      userId: studentA.id,
+      title: 'Action Required',
+      message: 'Please upload Student ID Card',
+      idempotencyKey: testNotifKey,
+    });
+    const notif2 = await createIdempotentNotification({
+      userId: studentA.id,
+      title: 'Action Required',
+      message: 'Please upload Student ID Card',
+      idempotencyKey: testNotifKey,
+    });
+    assert.ok(notif1, 'First notification created');
+    assert.ok(notif2, 'Second notification retrieved via idempotency');
+    assert.strictEqual(notif1.id, notif2.id, 'Idempotent notification creation returns same record');
+    console.log('  ✅ PASS: 18. Notification idempotency strictly prevents duplicate notifications on replay');
+
+
+    console.log('\n📊 Production-Readiness Test Summary: 18 Passed, 0 Failed\n');
   } catch (err: any) {
     console.error('❌ Production Readiness Test Failed:', err);
     process.exit(1);
@@ -314,3 +377,4 @@ export async function runProductionReadinessTests() {
 if (require.main === module) {
   runProductionReadinessTests();
 }
+

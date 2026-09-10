@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { db } from '@/lib/db';
 import { UserSession, UserRole } from '@/types';
@@ -9,8 +10,10 @@ import { UserSession, UserRole } from '@/types';
  * 1. Identity is derived strictly from the authenticated Supabase Auth session.
  * 2. No arbitrary dev headers, client-provided user IDs, or fake session fallbacks.
  * 3. Application roles & departments are fetched directly from Prisma/PostgreSQL.
+ * 4. Memoized per-request lifecycle using React cache() to prevent redundant DB/Auth round trips.
  */
-export async function getCurrentAppUser(): Promise<UserSession | null> {
+export const getCurrentAppUser = cache(async (): Promise<UserSession | null> => {
+
   try {
     const supabase = createClient();
     const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -54,4 +57,5 @@ export async function getCurrentAppUser(): Promise<UserSession | null> {
   }
 
   return null;
-}
+});
+

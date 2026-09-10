@@ -1,5 +1,12 @@
 import { db } from '@/lib/db';
-import { WORKFLOW_DEFINITIONS } from './definitions';
+import {
+  WORKFLOW_DEFINITIONS,
+  getWorkflowByKey,
+  listActiveWorkflows,
+  getWorkflowRequirements,
+  DEPARTMENT_NAMES,
+  WORKFLOW_DOCUMENT_SPECS,
+} from './definitions';
 import { notifyWorkflowEvent, WorkflowEventType } from '@/lib/notifications/service';
 import { logger } from '@/lib/observability/logger';
 import {
@@ -36,13 +43,15 @@ export function canTransitionStatus(from: RequestStatus, to: RequestStatus): boo
   return allowed ? allowed.includes(to) : false;
 }
 
-export function getWorkflowByKey(key: string): WorkflowDefinition | undefined {
-  return WORKFLOW_DEFINITIONS.find((wf) => wf.key === key);
-}
+export {
+  getWorkflowByKey,
+  listActiveWorkflows,
+  getWorkflowRequirements,
+  DEPARTMENT_NAMES,
+  WORKFLOW_DOCUMENT_SPECS,
+};
 
-export function listActiveWorkflows(): WorkflowDefinition[] {
-  return WORKFLOW_DEFINITIONS;
-}
+
 
 /**
  * Validate incoming request payload against workflow field definitions

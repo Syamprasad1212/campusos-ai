@@ -12,9 +12,9 @@
 
 import { generateStructuredResponse } from '@/lib/ai/provider';
 import { toolGetActiveWorkflows, toolLogAgentRun } from '@/lib/agents/tools';
-import { validateWorkflowData } from '@/lib/workflows/service';
+import { validateWorkflowData, getWorkflowRequirements } from '@/lib/workflows/service';
 import { logger } from '@/lib/observability/logger';
-import { WorkflowDefinition } from '@/types';
+import { WorkflowDefinition, WorkflowRequirements } from '@/types';
 
 export type IntakeNextAction = 'ASK_FOR_INFORMATION' | 'PREVIEW_WORKFLOW' | 'CREATE_REQUEST' | 'CLARIFY';
 
@@ -31,15 +31,28 @@ export interface IntakeAgentResult {
     title: string;
     description: string;
     departmentCode: string;
+    departmentName?: string;
     pattern: string;
     stepSequence: Array<{
       stepOrder: number;
       name: string;
       roleRequired: string;
       description: string;
+      requiresDocuments?: boolean;
+      requiresApproval?: boolean;
     }>;
+    requirements?: WorkflowRequirements | null;
+    requiredDocuments?: Array<{
+      name: string;
+      type: string;
+      description: string;
+      required: boolean;
+      stepOrder: number;
+    }>;
+    submissionNotice?: string;
   };
 }
+
 
 export async function runIntakeAgent(input: {
   userId: string;
@@ -135,19 +148,28 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
       explanation = `Matched request to ${matchedWorkflow.title}. All required details are ready for confirmation.`;
     }
 
+    const reqs = getWorkflowRequirements(matchedWorkflow.key);
+
     workflowPreview = {
       title: matchedWorkflow.title,
       description: matchedWorkflow.description,
       departmentCode: matchedWorkflow.departmentCode,
+      departmentName: reqs?.departmentName,
       pattern: matchedWorkflow.pattern,
       stepSequence: matchedWorkflow.stepSequence.map((s) => ({
         stepOrder: s.stepOrder,
         name: s.name,
         roleRequired: s.roleRequired,
         description: s.description,
+        requiresDocuments: s.requiresDocuments || false,
+        requiresApproval: s.requiresApproval || false,
       })),
+      requirements: reqs,
+      requiredDocuments: reqs?.requiredDocuments || [],
+      submissionNotice: reqs?.submissionNotice,
     };
   }
+
 
   const result: IntakeAgentResult = {
     intent: aiResult.intent || 'Campus request processing',

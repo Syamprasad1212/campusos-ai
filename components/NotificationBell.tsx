@@ -1,8 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+
 
 export default function NotificationBell() {
+  const router = useRouter();
+  const pathname = usePathname();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -38,8 +42,8 @@ export default function NotificationBell() {
     }
   }
 
-  async function handleMarkRead(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function handleMarkRead(id: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
     try {
       const res = await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
       const json = await res.json();
@@ -51,6 +55,20 @@ export default function NotificationBell() {
       }
     } catch (err) {
       // Handle error
+    }
+  }
+
+  function handleNotificationClick(n: any) {
+    if (!n.isRead) {
+      handleMarkRead(n.id);
+    }
+    setOpen(false);
+    if (n.requestId) {
+      const isStaffRoute = pathname.startsWith('/staff') || pathname.startsWith('/admin');
+      const targetUrl = isStaffRoute
+        ? `/staff/requests/${n.requestId}`
+        : `/dashboard/requests/${n.requestId}`;
+      router.push(targetUrl);
     }
   }
 
@@ -90,13 +108,14 @@ export default function NotificationBell() {
               notifications.map((n) => (
                 <div
                   key={n.id}
-                  className={`p-3 text-xs transition flex items-start justify-between gap-3 ${
+                  onClick={() => handleNotificationClick(n)}
+                  className={`p-3 text-xs transition flex items-start justify-between gap-3 cursor-pointer ${
                     !n.isRead ? 'bg-indigo-950/20 hover:bg-indigo-950/30' : 'hover:bg-slate-800/40'
                   }`}
                 >
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1">
                     <div className="flex items-center gap-1.5">
-                      {!n.isRead && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>}
+                      {!n.isRead && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full shrink-0"></span>}
                       <span className="font-semibold text-slate-200">{n.title}</span>
                     </div>
                     <p className="text-slate-400 leading-snug">{n.message}</p>
@@ -108,7 +127,7 @@ export default function NotificationBell() {
                   {!n.isRead && (
                     <button
                       onClick={(e) => handleMarkRead(n.id, e)}
-                      className="text-[10px] text-indigo-400 hover:text-indigo-300 whitespace-nowrap bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded border border-indigo-500/30 transition"
+                      className="text-[10px] text-indigo-400 hover:text-indigo-300 whitespace-nowrap bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded border border-indigo-500/30 transition shrink-0"
                     >
                       Mark Read
                     </button>
@@ -122,3 +141,4 @@ export default function NotificationBell() {
     </div>
   );
 }
+

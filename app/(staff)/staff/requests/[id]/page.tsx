@@ -123,15 +123,9 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
 
       setRequest(json.data.request);
       setTimeline(json.data.timeline || []);
+      setDocuments(json.data.documents || json.data.request?.documents || []);
       if (json.data.workflowDefinition?.stepSequence) {
         setSteps(json.data.workflowDefinition.stepSequence);
-      }
-
-      // Fetch uploaded documents for request
-      const docsRes = await fetch(`/api/requests/${params.id}/documents`);
-      const docsJson = await docsRes.json();
-      if (docsRes.ok && docsJson.success) {
-        setDocuments(docsJson.data || []);
       }
     } catch (err: any) {
       setError(err.message || 'Error loading request');
@@ -139,6 +133,7 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
       setLoading(false);
     }
   };
+
 
   useEffect(() => {
     fetchRequestDetails();
@@ -475,46 +470,73 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
           />
 
           {/* Action Control Panel */}
-          {!isTerminal && (
-            <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-6 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-sky-600" />
-                Staff Operations & Governance Action
-              </h3>
-              <p className="text-xs text-slate-600 mb-5">
-                Perform authorized action for Step {request.currentStep}: <span className="font-semibold text-slate-900">{currentStepDef?.name}</span>.
-              </p>
+          {!isTerminal && (() => {
+            const hasVerifiedDoc = documents.some((d) => d.verificationStatus === 'VERIFIED');
+            const isStepBlockedByDocs = (currentStepDef?.requiresDocuments ?? false) && !hasVerifiedDoc;
 
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  disabled={actionLoading}
-                  onClick={() => handleAction('APPROVE')}
-                  className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 transition"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {currentStepDef?.requiresApproval ? 'Approve & Complete Step' : 'Verify & Proceed'}
-                </button>
+            return (
+              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-6 shadow-sm">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-sky-600" />
+                  Staff Operations & Governance Action
+                </h3>
+                <p className="text-xs text-slate-600 mb-4">
+                  Perform authorized action for Step {request.currentStep}: <span className="font-semibold text-slate-900">{currentStepDef?.name}</span>.
+                </p>
 
-                <button
-                  disabled={actionLoading}
-                  onClick={() => setActiveModal('INFO')}
-                  className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 transition"
-                >
-                  <HelpCircle className="h-4 w-4" />
-                  Request Student Info
-                </button>
+                {isStepBlockedByDocs && (
+                  <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-900 space-y-1.5">
+                    <div className="flex items-center gap-2 font-bold text-amber-950">
+                      <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span>Missing Requirement for Step {request.currentStep}: Document Verification Required</span>
+                    </div>
+                    <p className="text-amber-800">
+                      {documents.length === 0
+                        ? 'No documents have been uploaded by the student yet. Staff cannot proceed until the required document is uploaded and verified.'
+                        : 'Submitted document is awaiting manual staff verification. Please review and click "Mark Verified" above before proceeding.'}
+                    </p>
+                    {documents.length === 0 && (
+                      <div className="pt-1">
+                        <span className="font-semibold text-slate-700">Recommended Action: </span>
+                        <span className="text-amber-900">Click "Request Student Info" below to notify the student to upload their document.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                <button
-                  disabled={actionLoading}
-                  onClick={() => setActiveModal('REJECT')}
-                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 transition"
-                >
-                  <XCircle className="h-4 w-4" />
-                  Reject Request
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    disabled={actionLoading || isStepBlockedByDocs}
+                    onClick={() => handleAction('APPROVE')}
+                    title={isStepBlockedByDocs ? 'Step completion blocked: Required document is missing or not verified.' : undefined}
+                    className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {currentStepDef?.requiresApproval ? 'Approve & Complete Step' : 'Verify & Proceed'}
+                  </button>
+
+                  <button
+                    disabled={actionLoading}
+                    onClick={() => setActiveModal('INFO')}
+                    className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 transition"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                    Request Student Info
+                  </button>
+
+                  <button
+                    disabled={actionLoading}
+                    onClick={() => setActiveModal('REJECT')}
+                    className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm disabled:opacity-50 transition"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Reject Request
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
+
 
           {/* Document Rejection Modal */}
           {activeModal === 'REJECT_DOC' && selectedDocId && (

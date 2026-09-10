@@ -1,4 +1,49 @@
-import { WorkflowDefinition } from '@/types';
+import { WorkflowDefinition, WorkflowRequirements, DocumentRequirement } from '@/types';
+
+export const DEPARTMENT_NAMES: Record<string, string> = {
+  REGISTRAR: 'Registrar & Academic Records',
+  ACADEMIC_AFFAIRS: 'Academic Affairs',
+  STUDENT_AFFAIRS: 'Office of Student Affairs',
+  EXAM_CELL: 'Examination Cell',
+  FINANCE: 'Finance & Accounts',
+  FINANCIAL_AID: 'Scholarship & Financial Aid',
+  HOSTEL_ADMIN: 'Hostel Administration',
+  TRANSPORT: 'Campus Transport Services',
+  CAREER_CELL: 'Career Development & Placement Cell',
+  IT_SUPPORT: 'IT & Infrastructure Support',
+  STUDENT_CLUBS: 'Student Clubs & Societies',
+  CAMPUS_OPS: 'Campus Operations & Security',
+};
+
+export const WORKFLOW_DOCUMENT_SPECS: Record<string, DocumentRequirement[]> = {
+  CERTIFICATE_REQUEST: [
+    {
+      name: 'Student ID Card',
+      type: 'STUDENT_ID',
+      description: 'Official campus student ID card or government-issued photo identity proof.',
+      required: true,
+      stepOrder: 1,
+    },
+  ],
+  SCHOLARSHIP_ASSISTANCE: [
+    {
+      name: 'Income Certificate / Marksheet',
+      type: 'INCOME_PROOF',
+      description: 'Official annual family income certificate or previous semester marksheet.',
+      required: true,
+      stepOrder: 1,
+    },
+  ],
+  INTERNSHIP_DOCUMENTS: [
+    {
+      name: 'Offer Letter / Company Clearance',
+      type: 'OFFER_LETTER',
+      description: 'Formal company offer letter detailing designation, duration, and stipend terms.',
+      required: true,
+      stepOrder: 1,
+    },
+  ],
+};
 
 export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
   // 1. Certificate Requests
@@ -269,3 +314,79 @@ export function getWorkflowByKey(key: string): WorkflowDefinition | undefined {
 export function listActiveWorkflows(): WorkflowDefinition[] {
   return WORKFLOW_DEFINITIONS;
 }
+
+/**
+ * Authoritative Single Source of Truth for Workflow Requirements
+ * Resolves required fields, required documents, approval rules, and responsible department.
+ */
+export function getWorkflowRequirements(
+  workflowKey: string,
+  currentStepOrder?: number
+): WorkflowRequirements | null {
+  const wf = getWorkflowByKey(workflowKey);
+  if (!wf) return null;
+
+  const departmentName = DEPARTMENT_NAMES[wf.departmentCode] || wf.departmentCode;
+
+  // Resolve document requirements
+  const explicitDocs = WORKFLOW_DOCUMENT_SPECS[wf.key] || [];
+  const requiredDocuments: DocumentRequirement[] = [...explicitDocs];
+
+  // If a step has requiresDocuments: true but wasn't in explicit map, add standard requirement
+  for (const step of wf.stepSequence) {
+    if (step.requiresDocuments && !requiredDocuments.some((d) => d.stepOrder === step.stepOrder)) {
+      requiredDocuments.push({
+        name: 'Supporting Verification Document',
+        type: 'GENERAL',
+        description: `Required verification document for Step ${step.stepOrder} (${step.name}).`,
+        required: true,
+        stepOrder: step.stepOrder,
+      });
+    }
+  }
+
+  // Resolve approval requirements
+  const requiredApprovals = wf.stepSequence
+    .filter((s) => s.requiresApproval)
+    .map((s) => ({
+      stepOrder: s.stepOrder,
+      name: s.name,
+      roleRequired: s.roleRequired,
+      description: s.description,
+    }));
+
+  const activeStep = currentStepOrder
+    ? wf.stepSequence.find((s) => s.stepOrder === currentStepOrder) || wf.stepSequence[0]
+    : wf.stepSequence[0];
+
+  let submissionNotice: string | undefined = undefined;
+  if (requiredDocuments.length > 0) {
+    const docNames = requiredDocuments.map((d) => d.name).join(', ');
+    submissionNotice = `Your request can be submitted, but staff cannot process Step 1 until the following required document is uploaded: ${docNames}.`;
+  }
+
+  return {
+    workflowKey: wf.key,
+    workflowTitle: wf.title,
+    category: wf.category,
+    departmentCode: wf.departmentCode,
+    departmentName,
+    pattern: wf.pattern,
+    responsibleRole: activeStep?.roleRequired || 'STAFF',
+    currentStepOrder: activeStep?.stepOrder,
+    currentStepName: activeStep?.name,
+    requiredFields: wf.requiredFields,
+    requiredDocuments,
+    requiredApprovals,
+    steps: wf.stepSequence.map((s) => ({
+      stepOrder: s.stepOrder,
+      name: s.name,
+      roleRequired: s.roleRequired,
+      description: s.description,
+      requiresDocuments: s.requiresDocuments || false,
+      requiresApproval: s.requiresApproval || false,
+    })),
+    submissionNotice,
+  };
+}
+

@@ -49,18 +49,25 @@ export async function GET(
       );
     }
 
-    const timeline = await getRequestTimeline(params.id);
-    const { getWorkflowByKey } = await import('@/lib/workflows/service');
+    const [timeline, { getWorkflowByKey, getWorkflowRequirements }] = await Promise.all([
+      getRequestTimeline(params.id),
+      import('@/lib/workflows/service'),
+    ]);
+
     const workflowDefinition = getWorkflowByKey(request.workflow.key);
+    const requirements = getWorkflowRequirements(request.workflow.key, request.currentStep);
 
     return NextResponse.json({
       success: true,
       data: {
         request,
         workflowDefinition,
+        requirements,
         timeline,
+        documents: request.documents || [],
       },
     });
+
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to fetch request details' },

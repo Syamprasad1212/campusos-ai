@@ -104,15 +104,9 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
 
       setRequest(json.data.request);
       setTimeline(json.data.timeline || []);
+      setDocuments(json.data.documents || json.data.request?.documents || []);
       if (json.data.workflowDefinition?.stepSequence) {
         setSteps(json.data.workflowDefinition.stepSequence);
-      }
-
-      // Fetch uploaded documents
-      const docsRes = await fetch(`/api/requests/${params.id}/documents`);
-      const docsJson = await docsRes.json();
-      if (docsRes.ok && docsJson.success) {
-        setDocuments(docsJson.data || []);
       }
     } catch (err: any) {
       setError(err.message || 'Error loading request');
@@ -120,6 +114,7 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
       setLoading(false);
     }
   };
+
 
   useEffect(() => {
     fetchDetails();
@@ -285,9 +280,9 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
           </div>
 
           <div>
-            <span className="text-slate-400 block font-medium">Current Step</span>
+            <span className="text-slate-400 block font-medium">Current Step & Role</span>
             <span className="font-semibold text-slate-800 mt-0.5 block">
-              Step {request.currentStep}: {currentStepDef?.name || 'Processing'}
+              Step {request.currentStep}: {currentStepDef?.name || 'Processing'} ({currentStepDef?.roleRequired || 'STAFF'})
             </span>
           </div>
 
@@ -306,6 +301,26 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
           </div>
         </div>
       </div>
+
+      {/* Mandatory Document Action Required Banner */}
+      {currentStepDef?.requiresDocuments && documents.filter(d => d.verificationStatus === 'VERIFIED').length === 0 && request.status !== 'COMPLETED' && request.status !== 'REJECTED' && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 shadow-sm space-y-2">
+          <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+            <span>Action Required: Mandatory Document Needed for Step {request.currentStep}</span>
+          </div>
+          <p className="text-xs text-amber-800 leading-relaxed">
+            {request.workflow.key === 'CERTIFICATE_REQUEST'
+              ? 'Please upload your Student ID Card / Valid ID Proof below. Staff cannot complete Step 1 (Record & Document Verification) until your document is uploaded and verified.'
+              : request.workflow.key === 'SCHOLARSHIP_ASSISTANCE'
+              ? 'Please upload your Income Certificate / Marksheet below so the financial aid cell can audit your eligibility.'
+              : request.workflow.key === 'INTERNSHIP_DOCUMENTS'
+              ? 'Please upload your formal Internship Offer Letter below for placement officer verification.'
+              : 'Please upload the required supporting document below to proceed with step verification.'}
+          </p>
+        </div>
+      )}
+
 
       {/* Information Required Action Form Banner */}
       {request.status === 'INFORMATION_REQUIRED' && infoReq && (
