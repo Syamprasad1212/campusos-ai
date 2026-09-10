@@ -1,17 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
+import { logger } from '@/lib/observability/logger';
 
 const BUCKET_NAME = 'campus-documents';
+const CANONICAL_SUPABASE_URL = 'https://pkcjdjcgqkogcrvqzlps.supabase.co';
 
 function getStorageClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || CANONICAL_SUPABASE_URL;
+  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_KEY;
   if (!serviceKey || serviceKey.includes('your-supabase')) {
-    serviceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    serviceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
   }
 
   if (!supabaseUrl || !serviceKey || serviceKey.includes('your-supabase')) {
+    logger.error('STORAGE_CONFIG_MISSING', 'Supabase Storage is unconfigured: missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL', {
+      details: {
+        hasUrl: Boolean(supabaseUrl),
+        hasKey: Boolean(serviceKey),
+      },
+    });
     throw new Error(
-      `[STORAGE_ERROR] Supabase Storage is unconfigured or unavailable. Please configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`
+      `[STORAGE_CONFIG_MISSING] Supabase Storage credentials are unconfigured or unavailable.`
     );
   }
 
@@ -27,47 +35,30 @@ export async function uploadDocumentToStorage(input: {
   fileBuffer: Buffer;
   mimeType: string;
   storagePath: string;
-}): Promise<{ storagePath: string; publicUrl?: string }> {
+}): Promise<{ storagePath: string }> {
   const supabase = getStorageClient();
 
-  // Ensure private bucket exists or create it
-  try {
-    const { data: buckets } = await supabase.storage.listBuckets();
-    const exists = buckets?.some((b) => b.name === BUCKET_NAME);
-    if (!exists) {
-      await supabase.storage.createBucket(BUCKET_NAME, { public: false });
-    }
-  } catch (err) {
-    // Ignore error if bucket creation is restricted
-  }
-
-  let { error } = await supabase.storage
+  const { error } = await supabase.storage
     .from(BUCKET_NAME)
     .upload(input.storagePath, input.fileBuffer, {
       contentType: input.mimeType,
       upsert: true,
     });
 
-  if (error && error.message.includes('Bucket not found')) {
-    try {
-      await supabase.storage.createBucket(BUCKET_NAME, { public: false });
-      const retry = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(input.storagePath, input.fileBuffer, {
-          contentType: input.mimeType,
-          upsert: true,
-        });
-      error = retry.error;
-    } catch {
-      // Ignore bucket creation error
-    }
-  }
-
   if (error) {
+    logger.error('STORAGE_UPLOAD_FAILED', `Failed to upload document to private storage bucket "${BUCKET_NAME}": ${error.message}`, {
+      error: error.message,
+      details: {
+        storagePath: input.storagePath,
+        bucket: BUCKET_NAME,
+      },
+    });
+
     if (error.message.includes('Bucket not found') || error.message.includes('not found')) {
-      return { storagePath: input.storagePath };
+      throw new Error(`[STORAGE_BUCKET_MISSING] Storage bucket "${BUCKET_NAME}" was not found.`);
     }
-    throw new Error(`[STORAGE_ERROR] Failed to upload document to storage: ${error.message}`);
+
+    throw new Error(`[STORAGE_UPLOAD_FAILED] Failed to store document in secure storage: ${error.message}`);
   }
 
   return { storagePath: input.storagePath };
@@ -87,11 +78,19 @@ export async function createSignedDocumentUrl(
     .createSignedUrl(storagePath, expiresInSeconds);
 
   if (error || !data?.signedUrl) {
+    logger.error('STORAGE_SIGNED_URL_FAILED', `Failed to generate signed URL for "${storagePath}": ${error?.message || 'No URL returned'}`, {
+      error: error?.message,
+      details: {
+        storagePath,
+        bucket: BUCKET_NAME,
+      },
+    });
+
     if (error?.message?.includes('Bucket not found') || error?.message?.includes('not found')) {
-      const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://supabase.co';
-      return `${baseUrl}/storage/v1/object/sign/${BUCKET_NAME}/${storagePath}?token=mock_signed_token_for_test`;
+      throw new Error(`[STORAGE_BUCKET_MISSING] Storage bucket "${BUCKET_NAME}" was not found.`);
     }
-    throw new Error(`[STORAGE_ERROR] Could not generate signed URL: ${error?.message || 'Unknown error'}`);
+
+    throw new Error(`[STORAGE_SIGNED_URL_FAILED] Failed to create signed document access URL: ${error?.message || 'Unknown error'}`);
   }
 
   return data.signedUrl;
@@ -104,6 +103,12 @@ export async function deleteDocumentFromStorage(storagePath: string): Promise<vo
   const supabase = getStorageClient();
   const { error } = await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
   if (error) {
-    console.warn(`[STORAGE_WARNING] Could not delete document from storage (${storagePath}):`, error.message);
+    logger.warn('STORAGE_DELETE_WARN', `Could not delete document from storage (${storagePath}): ${error.message}`, {
+      error: error.message,
+      details: {
+        storagePath,
+        bucket: BUCKET_NAME,
+      },
+    });
   }
 }

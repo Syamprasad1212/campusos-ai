@@ -114,6 +114,22 @@ export function handleApiError(error: unknown, fallbackMessage = 'An unexpected 
     );
   }
 
+  if (message.includes('[STORAGE_CONFIG_MISSING]') || message.includes('[STORAGE_BUCKET_MISSING]')) {
+    return createErrorResponse(
+      'Document storage service is temporarily unavailable. Please try again later or contact support.',
+      'INTERNAL_ERROR',
+      503
+    );
+  }
+
+  if (message.includes('[STORAGE_UPLOAD_FAILED]') || message.includes('[STORAGE_SIGNED_URL_FAILED]')) {
+    return createErrorResponse(
+      'Failed to store document in secure storage. Please try uploading again.',
+      'INTERNAL_ERROR',
+      500
+    );
+  }
+
   // Generic fallback (prevent leaking raw DB query traces to clients)
   const clientSafeMessage = process.env.NODE_ENV === 'production' && !message.startsWith('[')
     ? fallbackMessage
