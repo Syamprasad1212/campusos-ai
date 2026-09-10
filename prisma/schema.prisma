@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  STAFF
+  DEPARTMENT_ADMIN
+  UNIVERSITY_ADMIN
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  AI_PROCESSING
+  INFORMATION_REQUIRED
+  VALIDATING
+  ROUTED
+  ASSIGNED
+  UNDER_REVIEW
+  APPROVAL_PENDING
+  APPROVED
+  REJECTED
+  IN_PROGRESS
+  RESOLVED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WorkflowCategory {
+  ACADEMIC_CERTIFICATE
+  ACADEMIC_ISSUE
+  LEAVE_REQUEST
+  PERMISSION_REQUEST
+  CAMPUS_COMPLAINT
+  HOSTEL_REQUEST
+  TRANSPORT_REQUEST
+  LOST_AND_FOUND
+  SCHOLARSHIP_ASSISTANCE
+  FEE_ASSISTANCE
+  EVENT_PERMISSION
+  CLUB_PERMISSION
+  INTERNSHIP_DOCUMENTS
+}
+
+enum WorkflowPattern {
+  SIMPLE_APPROVAL
+  MULTI_LEVEL_APPROVAL
+  COMPLAINT_RESOLUTION
+  DOCUMENT_VERIFICATION
+  INFO_AND_ISSUE_RESOLUTION
+}
+
+model User {
+  id             String       @id @default(uuid())
+  supabaseAuthId String?      @unique
+  email          String       @unique
+  name           String
+  role           Role         @default(STUDENT)
+  departmentId   String?
+  department     Department?  @relation(fields: [departmentId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  requests          Request[]    @relation("StudentRequests")
+  assignedRequests  Request[]    @relation("AssignedUserRequests")
+  assignedTasks     Task[]       @relation("AssignedStaff")
+  approvals         Approval[]   @relation("ApproverUser")
+  uploadedDocuments Document[]   @relation("UploadedDocuments")
+  auditLogs         AuditLog[]
+  agentRuns         AgentRun[]
+
+  @@index([email])
+  @@index([role])
+  @@index([supabaseAuthId])
+}
+
+model Department {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  code        String     @unique
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  users       User[]
+  workflows   Workflow[]
+  requests    Request[]
+  steps       WorkflowStep[]
+}
+
+model Workflow {
+  id           String           @id @default(uuid())
+  key          String           @unique
+  name         String
+  title        String
+  description  String?
+  category     WorkflowCategory
+  pattern      WorkflowPattern  @default(SIMPLE_APPROVAL)
+  isActive     Boolean          @default(true)
+  departmentId String
+  department   Department       @relation(fields: [departmentId], references: [id])
+  configJson   Json             // Holds dynamic form fields and step rules configuration
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  steps        WorkflowStep[]
+  requests     Request[]
+}
+
+model WorkflowStep {
+  id                     String      @id @default(uuid())
+  workflowId             String
+  workflow               Workflow    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  stepOrder              Int
+  name                   String
+  description            String?
+  roleRequired           Role        @default(STAFF)
+  responsibleDepartmentId String?
+  responsibleDepartment  Department? @relation(fields: [responsibleDepartmentId], references: [id])
+  requiresApproval       Boolean     @default(false)
+  requiresDocuments      Boolean     @default(false)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  tasks                  Task[]
+
+  @@unique([workflowId, stepOrder])
+}
+
+model Request {
+  id           String        @id @default(uuid())
+  referenceNo  String        @unique @default(cuid())
+  studentId    String
+  student      User          @relation("StudentRequests", fields: [studentId], references: [id])
+  workflowId   String
+  workflow     Workflow      @relation(fields: [workflowId], references: [id])
+  departmentId String
+  department   Department    @relation(fields: [departmentId], references: [id])
+  assignedUserId String?
+  assignedUser User?         @relation("AssignedUserRequests", fields: [assignedUserId], references: [id])
+  title        String
+  summary      String?
+  status       RequestStatus @default(SUBMITTED)
+  currentStep  Int           @default(1)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  requestData   RequestData?
+  tasks         Task[]
+  approvals     Approval[]
+  documents     Document[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  agentRuns     AgentRun[]
+
+  @@index([studentId])
+  @@index([departmentId])
+  @@index([assignedUserId])
+  @@index([status])
+}
+
+model RequestData {
+  id          String   @id @default(uuid())
+  requestId   String   @unique
+  request     Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  formData    Json     // Flexible JSON payload collected during request submission
+  metadata    Json?    // Context or flags (read-only for AI)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  requestId   String
+  request     Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stepId      String?
+  step        WorkflowStep? @relation(fields: [stepId], references: [id])
+  assigneeId  String?
+  assignee    User?        @relation("AssignedStaff", fields: [assigneeId], references: [id])
+  title       String
+  description String?
+  status      TaskStatus   @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([requestId])
+  @@index([assigneeId])
+}
+
+model Approval {
+  id             String         @id @default(uuid())
+  requestId      String
+  request        Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approverId     String?
+  approver       User?          @relation("ApproverUser", fields: [approverId], references: [id])
+  stepOrder      Int?
+  status         ApprovalStatus @default(PENDING)
+  comments       String?
+  idempotencyKey String?        @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([requestId])
+}
+
+model Document {
+  id                 String   @id @default(uuid())
+  requestId          String
+  request            Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fileName           String
+  fileUrl            String
+  fileType           String
+  fileSize           Int
+  documentType       String?
+  storageReference   String?
+  verificationStatus String   @default("PENDING")
+  extractedData      Json?
+  notes              String?
+  uploadedById       String?
+  uploadedBy         User?    @relation("UploadedDocuments", fields: [uploadedById], references: [id])
+  createdAt          DateTime @default(now())
+
+  @@index([requestId])
+}
+
+model Notification {
+  id             String   @id @default(uuid())
+  requestId      String?
+  request        Request? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  userId         String
+  title          String
+  message        String
+  eventType      String?
+  stepOrder      Int?
+  isRead         Boolean  @default(false)
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  metadata  Json?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([requestId])
+}
+
+model AgentRun {
+  id              String    @id @default(uuid())
+  agentType       String?
+  requestId       String?
+  request         Request?  @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  actorId         String?
+  actor           User?     @relation(fields: [actorId], references: [id])
+  promptInput     String
+  input           String?
+  output          Json?
+  aiOutputJson    Json
+  tokensUsed      Int?
+  executionTimeMs Int?
+  status          String?
+  error           String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([requestId])
+}

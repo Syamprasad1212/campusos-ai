@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Document" ADD COLUMN IF NOT EXISTS "extractedData" JSONB;
+ALTER TABLE "Document" ADD COLUMN IF NOT EXISTS "notes" TEXT;
