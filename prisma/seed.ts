@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting CampusOS AI Seed & Real Supabase Auth Integration...');
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://pkcjdjcgqkogcrvqzlps.supabase.co';
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   let supabaseAdmin: ReturnType<typeof createClient> | null = null;

@@ -2,24 +2,20 @@ import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/observability/logger';
 
 const BUCKET_NAME = 'campus-documents';
-const CANONICAL_SUPABASE_URL = 'https://pkcjdjcgqkogcrvqzlps.supabase.co';
 
 function getStorageClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || CANONICAL_SUPABASE_URL;
-  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_KEY;
-  if (!serviceKey || serviceKey.includes('your-supabase')) {
-    serviceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-  }
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceKey || serviceKey.includes('your-supabase')) {
     logger.error('STORAGE_CONFIG_MISSING', 'Supabase Storage is unconfigured: missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL', {
       details: {
         hasUrl: Boolean(supabaseUrl),
-        hasKey: Boolean(serviceKey),
+        hasServiceKey: Boolean(serviceKey),
       },
     });
     throw new Error(
-      `[STORAGE_CONFIG_MISSING] Supabase Storage credentials are unconfigured or unavailable.`
+      `[STORAGE_CONFIG_MISSING] Supabase Storage credentials (NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) are unconfigured or unavailable.`
     );
   }
 
