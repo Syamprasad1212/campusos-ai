@@ -12,6 +12,7 @@ import { runStaffTrackingE2eTests } from '../tests/staff-tracking-e2e.test';
 import { runDocumentWorkflowE2eTests } from '../tests/document-workflow-e2e.test';
 import { runApprovalNotificationE2eTests } from '../tests/approval-notification-e2e.test';
 import { runProductionReadinessTests } from '../tests/production-readiness.test';
+import { runMiddlewareRoutingTests } from '../tests/middleware-routing.test';
 
 async function main() {
   console.log('🚀 Running Complete CampusOS AI Test Suite...\n');
@@ -38,6 +39,9 @@ async function main() {
 
     // 7. Phase 3 Production-Readiness Tests
     await runProductionReadinessTests();
+
+    // 8. Middleware & Role-Based Routing Tests
+    await runMiddlewareRoutingTests();
 
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`\n🎉 ALL TEST SUITES COMPLETED SUCCESSFULLY in ${totalDuration}s!\n`);
