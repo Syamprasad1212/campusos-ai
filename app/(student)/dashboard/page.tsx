@@ -1,8 +1,12 @@
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Sparkles, ArrowRight, Clock } from 'lucide-react';
+import { Sparkles, ArrowRight, Clock, FileText, ChevronRight } from 'lucide-react';
 import { WORKFLOW_DEFINITIONS } from '@/lib/workflows/definitions';
+import { db } from '@/lib/db';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function StudentDashboard() {
   const user = await getCurrentAppUser();
@@ -18,6 +22,19 @@ export default async function StudentDashboard() {
   if (user.role === 'DEPARTMENT_ADMIN' || user.role === 'UNIVERSITY_ADMIN') {
     redirect('/admin/dashboard');
   }
+
+  const activeRequests = await db.request.findMany({
+    where: {
+      studentId: user.id,
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+    },
+    include: {
+      workflow: true,
+      department: true,
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  });
 
   return (
     <div className="space-y-8">
@@ -88,25 +105,51 @@ export default async function StudentDashboard() {
             <Clock className="h-5 w-5 text-slate-500" />
             <span>Active Requests</span>
           </h3>
-          <span className="text-xs text-slate-500">2 active requests</span>
-        </div>
-
-        <div className="divide-y divide-slate-100">
-          <div className="py-4 flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-900">Academic Transcript Request</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
-                  In Review (Step 1/2)
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">Ref: REQ-DEMO-001 • Department: Registrar</p>
-            </div>
-            <button className="text-xs font-semibold text-sky-600 hover:text-sky-800">
-              View Details →
-            </button>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500">{activeRequests.length} active request{activeRequests.length === 1 ? '' : 's'}</span>
+            <Link
+              href="/dashboard/requests"
+              className="text-xs font-semibold text-sky-600 hover:text-sky-800"
+            >
+              View All →
+            </Link>
           </div>
         </div>
+
+        {activeRequests.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-500">
+            <FileText className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+            <p className="font-semibold text-slate-700">No active requests currently in progress</p>
+            <p className="text-slate-400 mt-0.5">Use the AI Assistant above to start a new campus request.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {activeRequests.map((req) => (
+              <div key={req.id} className="py-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-900">{req.title}</span>
+                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                      req.status === 'INFORMATION_REQUIRED' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                      req.status === 'REJECTED' ? 'bg-red-50 text-red-700 border border-red-200' :
+                      'bg-sky-50 text-sky-700 border border-sky-200'
+                    }`}>
+                      {req.status.replace(/_/g, ' ')} (Step {req.currentStep})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Ref: {req.referenceNo} • Department: {req.department.name}</p>
+                </div>
+                <Link
+                  href={`/dashboard/requests/${req.id}`}
+                  className="text-xs font-semibold text-sky-600 hover:text-sky-800 flex items-center gap-1"
+                >
+                  <span>Track Status</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

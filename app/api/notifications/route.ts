@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { getUserNotifications } from '@/lib/notifications/service';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
   try {
     const user = await getCurrentAppUser();

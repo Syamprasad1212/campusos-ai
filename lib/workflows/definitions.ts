@@ -67,7 +67,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     category: 'CAMPUS_COMPLAINT',
     title: 'Campus Facility Complaint',
     description: 'Report maintenance, Wi-Fi, cleanliness, or infrastructure issues on campus.',
-    departmentCode: 'FACILITIES',
+    departmentCode: 'CAMPUS_OPS',
     pattern: 'COMPLAINT_RESOLUTION',
     requiredFields: [
       { key: 'category', label: 'Complaint Category', type: 'select', required: true, options: ['Electrical', 'Plumbing', 'Wi-Fi/Network', 'HVAC', 'Cleanliness'] },
@@ -249,7 +249,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     category: 'LOST_AND_FOUND',
     title: 'Lost ID & Belongings Claim',
     description: 'Report a lost campus ID card or claim a found item.',
-    departmentCode: 'SECURITY',
+    departmentCode: 'CAMPUS_OPS',
     pattern: 'DOCUMENT_VERIFICATION',
     requiredFields: [
       { key: 'itemType', label: 'Item Type', type: 'select', required: true, options: ['Campus ID Card', 'Electronics', 'Personal Documents', 'Keys', 'Other'] },

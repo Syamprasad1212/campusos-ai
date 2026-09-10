@@ -4,6 +4,9 @@ import { createWorkflowRequest } from '@/lib/workflows/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { canAccessRequest } from '@/lib/permissions';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: Request) {
   try {
     const user = await getCurrentAppUser();
@@ -17,7 +20,24 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get('status');
 
-    const allRequests = await db.request.findMany({
+    // Build database-level RBAC where filter
+    const whereClause: Record<string, any> = {};
+
+    if (user.role === 'STUDENT' || user.role === 'FACULTY') {
+      whereClause.studentId = user.id;
+    } else if (user.role === 'STAFF' || user.role === 'DEPARTMENT_ADMIN') {
+      if (user.departmentId) {
+        whereClause.departmentId = user.departmentId;
+      }
+    }
+    // UNIVERSITY_ADMIN has full platform visibility across all departments
+
+    if (statusParam) {
+      whereClause.status = statusParam;
+    }
+
+    const authorizedRequests = await db.request.findMany({
+      where: whereClause,
       include: {
         student: true,
         workflow: true,
@@ -26,22 +46,20 @@ export async function GET(req: Request) {
         tasks: { include: { assignee: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     });
 
-    // Filter requests based on server-side RBAC permissions
-    let authorizedRequests = allRequests.filter((request) =>
-      canAccessRequest(user, request.studentId, request.departmentId)
+    return NextResponse.json(
+      {
+        success: true,
+        data: authorizedRequests,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        },
+      }
     );
-
-    if (statusParam) {
-      authorizedRequests = authorizedRequests.filter((r) => r.status === statusParam);
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: authorizedRequests,
-    });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to fetch requests' },

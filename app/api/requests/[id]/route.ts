@@ -4,6 +4,9 @@ import { getRequestTimeline } from '@/lib/workflows/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { canAccessRequest } from '@/lib/permissions';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }

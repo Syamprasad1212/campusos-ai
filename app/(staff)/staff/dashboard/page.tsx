@@ -45,7 +45,12 @@ export default function StaffDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/requests');
+      const res = await fetch(`/api/requests?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store',
+        },
+      });
       const json = await res.json();
 
       if (!res.ok || !json.success) {

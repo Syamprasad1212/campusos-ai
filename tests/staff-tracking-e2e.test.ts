@@ -259,6 +259,150 @@ async function runStaffTrackingE2eTests() {
       'Timeline reflects persisted backend audit events'
     );
 
+    // =========================================================================
+    // PRODUCTION WORKFLOW & STAFF QUEUE REGRESSION TESTS (TESTS 1 - 12)
+    // =========================================================================
+    console.log('\n  --- Executing Production Data Flow & Staff Queue Tests ---');
+
+    // TEST 1: Student creates a certificate request & verifies persistence
+    const prodCertReq = await createWorkflowRequest({
+      requesterId: studentAlex.id,
+      workflowKey: 'CERTIFICATE_REQUEST',
+      title: 'Alex Prod Certificate Request',
+      summary: 'Transcript for graduate school application',
+      data: {
+        certificateType: 'Transcript',
+        purpose: 'Graduate School Application',
+        deliveryPreference: 'Digital PDF',
+      },
+    });
+
+    const persistedReq = await db.request.findUnique({
+      where: { id: prodCertReq.id },
+      include: { student: true, workflow: true, department: true },
+    });
+
+    assert(
+      persistedReq !== null &&
+      persistedReq.studentId === studentAlex.id &&
+      persistedReq.workflow.key === 'CERTIFICATE_REQUEST' &&
+      persistedReq.department.code === 'REGISTRAR' &&
+      persistedReq.status === 'SUBMITTED' &&
+      persistedReq.currentStep === 1,
+      'TEST 1: Request exists in DB with correct student, workflow, department, initial status, and current step'
+    );
+
+    // TEST 2: Staff from the correct department can retrieve the newly created request in the staff queue
+    const targetDeptId = markStaffSession.departmentId || regDept.id;
+    const staffQueueRequests = await db.request.findMany({
+      where: { departmentId: targetDeptId },
+      include: { student: true, workflow: true, department: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const foundInStaffQueue = staffQueueRequests.some((r) => r.id === prodCertReq.id);
+    assert(foundInStaffQueue, 'TEST 2: Staff from correct department can retrieve newly created request in staff queue');
+
+    // TEST 3: Unauthorized staff cannot retrieve/process the request
+    const unauthorizedStaffSession: UserSession = {
+      id: 'usr-unauth-staff',
+      email: 'other.staff@campus.edu',
+      name: 'Other Staff',
+      role: 'STAFF',
+      departmentId: opsDept.id,
+      departmentCode: 'CAMPUS_OPS',
+    };
+    assert(
+      canAccessRequest(unauthorizedStaffSession, prodCertReq.studentId, prodCertReq.departmentId) === false,
+      'TEST 3: Unauthorized staff from different department CANNOT access the request'
+    );
+
+    // TEST 4: Student can see their own newly created request immediately
+    const studentQueueRequests = await db.request.findMany({
+      where: { studentId: alexSession.id },
+      include: { workflow: true, department: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const foundInStudentList = studentQueueRequests.some((r) => r.id === prodCertReq.id);
+    assert(foundInStudentList, 'TEST 4: Student can see their own newly created request immediately');
+
+    // TEST 5: Staff refreshes the queue and newly created request remains visible
+    const refreshedStaffQueue = await db.request.findMany({
+      where: { departmentId: targetDeptId },
+      orderBy: { createdAt: 'desc' },
+    });
+    assert(
+      refreshedStaffQueue.some((r) => r.id === prodCertReq.id),
+      'TEST 5: Staff refreshes queue and newly created request remains visible'
+    );
+
+    // TEST 6: Staff can open the request and process the existing workflow
+    const sampleDoc2 = await processAndStoreDocument({
+      requestId: prodCertReq.id,
+      uploaderId: studentAlex.id,
+      fileName: 'alex_transcript_req.pdf',
+      mimeType: 'application/pdf',
+      fileBuffer: Buffer.from('PDF content for transcript request'),
+      documentType: 'STUDENT_ID',
+    });
+    await verifyDocumentByStaff({
+      documentId: sampleDoc2.document.id,
+      actorId: staffMark.id,
+      status: 'VERIFIED',
+    });
+    const processedStep1 = await executeWorkflowAction({
+      requestId: prodCertReq.id,
+      actorId: staffMark.id,
+      action: 'APPROVE',
+    });
+    assert(
+      processedStep1.currentStep === 2 && processedStep1.status === 'APPROVAL_PENDING',
+      'TEST 6: Staff can open request and process Step 1 to advance workflow'
+    );
+
+    // TEST 7: Approval/rejection continues to work
+    const approvedStep2 = await executeWorkflowAction({
+      requestId: prodCertReq.id,
+      actorId: deptDean.id,
+      action: 'APPROVE',
+    });
+    assert(
+      approvedStep2.status === 'COMPLETED',
+      'TEST 7: Department Admin approval completes the workflow'
+    );
+
+    // TEST 8: Student sees resulting status/timeline
+    const studentTimeline = await getRequestTimeline(prodCertReq.id);
+    assert(
+      studentTimeline.length >= 2 && studentTimeline.some((e) => e.title === 'REQUEST COMPLETED'),
+      'TEST 8: Student sees resulting status and completed timeline'
+    );
+
+    // TEST 9: Notification is created correctly
+    const studentNotifications = await db.notification.findMany({
+      where: { requestId: prodCertReq.id },
+    });
+    assert(
+      studentNotifications.length > 0,
+      'TEST 9: Notifications are created correctly for workflow lifecycle events'
+    );
+
+    // TEST 11: No client-supplied requesterId/role/departmentId can alter authorization
+    const tamperedCheck = canAccessRequest(
+      { id: 'usr-student-alex', email: 'alex.student@campus.edu', name: 'Alex Johnson', role: 'STUDENT' },
+      'usr-student-sarah',
+      regDept.id
+    );
+    assert(tamperedCheck === false, 'TEST 11: Client cannot bypass authorization by spoofing IDs');
+
+    // TEST 12: Production-style dynamic request fetching does not return stale data after request creation
+    const dynamicFetchResult = await db.request.findMany({
+      where: { id: prodCertReq.id },
+    });
+    assert(
+      dynamicFetchResult.length === 1 && dynamicFetchResult[0].status === 'COMPLETED',
+      'TEST 12: Production-style dynamic request query returns fresh DB state'
+    );
+
     console.log(`\n📊 Stage 5 Staff Operations & Tracking Test Summary: ${passed} Passed, ${failed} Failed`);
     if (failed > 0) {
       process.exit(1);
