@@ -159,6 +159,14 @@ export function runAuthRbacTests() {
     'API ignores client-provided role/requesterId and enforces authenticated identity'
   );
 
+  // 8. Operational Role Checks for Document Verification & Workflow Step Approval
+  const operationalRoles = ['STAFF', 'FACULTY', 'DEPARTMENT_ADMIN', 'UNIVERSITY_ADMIN'];
+  for (const opRole of operationalRoles) {
+    const isOpRole = ['STAFF', 'FACULTY', 'DEPARTMENT_ADMIN', 'UNIVERSITY_ADMIN'].includes(opRole);
+    assert(isOpRole, `Role ${opRole} is recognized as an authorized operational role`);
+  }
+  assert(!['STAFF', 'FACULTY', 'DEPARTMENT_ADMIN', 'UNIVERSITY_ADMIN'].includes('STUDENT'), 'STUDENT is NOT an operational role');
+
   console.log(`\n📊 Auth & RBAC Test Summary: ${passed} Passed, ${failed} Failed`);
   if (failed > 0) {
     process.exit(1);

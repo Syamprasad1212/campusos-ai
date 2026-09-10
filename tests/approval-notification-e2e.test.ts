@@ -148,18 +148,32 @@ export async function runApprovalNotificationE2eTests() {
     }
     assert(studentApprovalError, 'Student CANNOT execute approval action (RBAC boundary)');
 
-    // 11. SCENARIO 9: Non-assigned staff CANNOT execute approval action
-    let otherDeptStaffError = false;
+    // 11. SCENARIO 9: Staff (STAFF) CAN execute workflow approval without department blocking
+    const staffTestReq = await createWorkflowRequest({
+      requesterId: studentAlex.id,
+      workflowKey: 'CAMPUS_COMPLAINT',
+      title: 'Staff Approval Authorization Test',
+      summary: 'Testing operational staff approval capability',
+      data: {
+        category: 'Wi-Fi/Network',
+        location: 'Computer Lab 3',
+        priority: 'Medium',
+        description: 'Wi-Fi connectivity issue',
+      },
+    });
+    let staffApprovalSuccess = false;
     try {
-      await executeWorkflowAction({
-        requestId: certReq.id,
-        actorId: staffMark.id, // staffMark is STAFF, but Step 2 requires DEPARTMENT_ADMIN
+      const staffApproved = await executeWorkflowAction({
+        requestId: staffTestReq.id,
+        actorId: staffMark.id,
         action: 'APPROVE',
+        reason: 'Staff approved resolution',
       });
+      staffApprovalSuccess = staffApproved !== null;
     } catch (e: any) {
-      otherDeptStaffError = e.message.includes('[FORBIDDEN]');
+      staffApprovalSuccess = false;
     }
-    assert(otherDeptStaffError, 'Regular staff CANNOT execute approval when step requires DEPARTMENT_ADMIN');
+    assert(staffApprovalSuccess, 'Staff (STAFF) CAN execute workflow approval without department blocking');
 
     // 12. SCENARIO 10: Self-approval is explicitly prevented
     // Create a temporary request owned by deptAdminDean

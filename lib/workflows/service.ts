@@ -479,20 +479,16 @@ export async function executeWorkflowAction(input: ExecuteWorkflowActionInput) {
     throw new Error(`[FORBIDDEN] Requesters cannot approve or reject their own requests.`);
   }
 
-  const isUnivAdmin = actor.role === 'UNIVERSITY_ADMIN';
-  const isDeptAdmin = actor.role === 'DEPARTMENT_ADMIN' && actor.departmentId === request.departmentId;
-  const isDeptStaff = (actor.role === 'STAFF' || actor.role === 'DEPARTMENT_ADMIN') && actor.departmentId === request.departmentId;
+  // Operational Role Check (STAFF, FACULTY, DEPARTMENT_ADMIN, UNIVERSITY_ADMIN)
+  const isOperationalRole =
+    actor.role === 'STAFF' ||
+    actor.role === 'FACULTY' ||
+    actor.role === 'DEPARTMENT_ADMIN' ||
+    actor.role === 'UNIVERSITY_ADMIN';
 
-  let isAuthorized = isUnivAdmin;
-  if (currentStepDef.requiresApproval || currentStepDef.roleRequired === 'DEPARTMENT_ADMIN') {
-    isAuthorized = isAuthorized || isDeptAdmin;
-  } else {
-    isAuthorized = isAuthorized || isDeptStaff;
-  }
-
-  if (!isAuthorized) {
+  if (!isOperationalRole) {
     throw new Error(
-      `[FORBIDDEN] User "${actor.name}" (${actor.role}) is not authorized for step ${currentStepOrder} (${currentStepDef.name}) in department "${request.department.code}".`
+      `[FORBIDDEN] User "${actor.name}" (${actor.role}) is not authorized to perform operational actions on this request.`
     );
   }
 

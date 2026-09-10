@@ -185,17 +185,15 @@ export async function verifyDocumentByStaff(input: {
     throw new Error(`[USER_NOT_FOUND] Staff user not found.`);
   }
 
-  // Security Check: Staff/Admin authorization for the request department
-  const userSession: UserSession = {
-    id: actor.id,
-    email: actor.email,
-    name: actor.name,
-    role: actor.role as any,
-    departmentId: actor.departmentId || undefined,
-  };
+  // Security Check: Operational user authorization (STAFF, FACULTY, DEPARTMENT_ADMIN, UNIVERSITY_ADMIN)
+  const isOperationalRole =
+    actor.role === 'STAFF' ||
+    actor.role === 'FACULTY' ||
+    actor.role === 'DEPARTMENT_ADMIN' ||
+    actor.role === 'UNIVERSITY_ADMIN';
 
-  if (!canAccessRequest(userSession, doc.request.studentId, doc.request.departmentId) || actor.role === 'STUDENT' || actor.role === 'FACULTY') {
-    throw new Error(`[FORBIDDEN] You do not have staff authorization to verify documents in this department.`);
+  if (!isOperationalRole) {
+    throw new Error(`[FORBIDDEN] You do not have operational authorization to verify documents.`);
   }
 
   if (status === 'REJECTED' && (!reason || !reason.trim())) {
