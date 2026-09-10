@@ -199,47 +199,7 @@ async function main() {
   }
 
   console.log('✅ Seeded 13 data-driven workflow definitions and step sequences.');
-
-  // 4. Create Sample Requests for Demo & Testing
-  const certWf = await prisma.workflow.findUnique({ where: { key: 'CERTIFICATE_REQUEST' } });
-  const regDeptId = departmentMap.get('REGISTRAR')!;
-
-  if (certWf) {
-    const req1 = await prisma.request.upsert({
-      where: { referenceNo: 'REQ-DEMO-001' },
-      update: {},
-      create: {
-        referenceNo: 'REQ-DEMO-001',
-        studentId: 'usr-student-alex',
-        workflowId: certWf.id,
-        departmentId: regDeptId,
-        title: 'Official Academic Transcript for Higher Studies',
-        summary: 'Request for 2 sealed copies of transcript',
-        status: 'UNDER_REVIEW',
-        currentStep: 1,
-      },
-    });
-
-    await prisma.requestData.upsert({
-      where: { requestId: req1.id },
-      update: {},
-      create: {
-        requestId: req1.id,
-        formData: { certificateType: 'Transcript', purpose: 'Higher Education Application', deliveryPreference: 'Physical Copy Pickup' },
-      },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        requestId: req1.id,
-        actorId: 'usr-student-alex',
-        action: 'REQUEST_CREATED',
-        metadata: { workflowKey: 'CERTIFICATE_REQUEST' },
-      },
-    });
-  }
-
-  console.log('🌱 Seed completed successfully.');
+  console.log('🌱 Seed completed successfully (No requests seeded).');
 }
 
 main()

@@ -58,13 +58,16 @@ export async function runIntakeAgent(input: {
     requiredFields: wf.requiredFields.map((f) => ({ key: f.key, label: f.label, required: f.required })),
   }));
 
-  const systemPrompt = `You are the CampusOS AI Intake Agent.
+  const systemPrompt = `You are the CampusOS AI Intake Agent for university operations.
 Your job is to match a student's natural-language request to ONE valid workflow definition.
 
 STRICT RULES:
 1. You MUST ONLY choose a workflowKey from the provided active workflow list. DO NOT invent workflow keys.
-2. Extract any data fields provided in the user prompt matching the workflow's required fields.
-3. If confidence is below 0.60 or ambiguous, set workflowKey to null.
+2. Extract all relevant information from the student's request into extractedData matching the workflow's fields.
+3. For standard fields that have clear contextual defaults in university workflows (e.g., deliveryPreference="Digital PDF", priority="High" or "Medium", leaveType="Medical" or "Casual", dates starting from current date, itemType="Campus ID Card" for lost IDs, requestType="Maintenance Request" for hostel repairs), populate them cleanly so students are not burdened with unnecessary friction.
+4. If a genuinely required field is missing, state specifically what is needed (e.g. "I can process this as a Bona Fide Certificate request. What is the purpose of the certificate?").
+5. DO NOT return a generic "Please provide more information" message when the student's intent is clear.
+6. If confidence is below 0.60 or completely ambiguous, set workflowKey to null.
 
 AVAILABLE WORKFLOWS:
 ${JSON.stringify(workflowSummaries, null, 2)}`;
@@ -109,6 +112,7 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
   let missingFields: string[] = [];
   let nextAction: IntakeNextAction = 'CLARIFY';
   let workflowPreview: IntakeAgentResult['workflowPreview'] = undefined;
+  let explanation = aiResult.explanation || 'Processed natural-language request.';
 
   if (matchedWorkflow && finalWorkflowKey) {
     const validation = validateWorkflowData(matchedWorkflow, aiResult.extractedData || {});
@@ -116,10 +120,17 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
 
     if (finalConfidence < 0.6) {
       nextAction = 'CLARIFY';
+      explanation = `I could not clearly match your request to an existing campus workflow. Please rephrase or specify if this is a certificate, leave, maintenance, or permission request.`;
     } else if (missingFields.length > 0) {
       nextAction = 'ASK_FOR_INFORMATION';
+      const missingFieldLabels = missingFields.map((f) => {
+        const fieldDef = matchedWorkflow?.requiredFields.find((rf) => rf.key === f);
+        return fieldDef ? `"${fieldDef.label}"` : `"${f}"`;
+      });
+      explanation = `I can process this as a ${matchedWorkflow.title}. Please provide the required information: ${missingFieldLabels.join(', ')}.`;
     } else {
       nextAction = 'PREVIEW_WORKFLOW';
+      explanation = `Matched request to ${matchedWorkflow.title}. All required details are ready for confirmation.`;
     }
 
     workflowPreview = {
@@ -143,7 +154,7 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
     workflowKey: finalWorkflowKey,
     extractedData: aiResult.extractedData || {},
     missingFields,
-    explanation: aiResult.explanation || 'Processed natural-language request.',
+    explanation,
     nextAction,
     workflowPreview,
   };

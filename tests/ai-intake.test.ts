@@ -106,6 +106,91 @@ async function runAiIntakeTests() {
     'Generate structured workflow preview with step sequence'
   );
 
+  // =========================================================================
+  // NATURAL-LANGUAGE TEST SUITE (EXAMPLES A THROUGH H)
+  // =========================================================================
+  console.log('\n  --- Testing Mandatory Natural-Language Prompts (A-H) ---');
+
+  // Example A: "I need a bonafide certificate for an education loan."
+  const exA = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I need a bonafide certificate for an education loan.',
+  });
+  assert(
+    exA.workflowKey === 'CERTIFICATE_REQUEST' && exA.extractedData.certificateType === 'Bona Fide',
+    'Example A: "I need a bonafide certificate for an education loan" -> Academic Certificate Request (Bona Fide)'
+  );
+
+  // Example B: "I need proof that I am a student for my bank education loan."
+  const exB = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I need proof that I am a student for my bank education loan.',
+  });
+  assert(
+    exB.workflowKey === 'CERTIFICATE_REQUEST',
+    'Example B: "I need proof that I am a student for my bank education loan" -> Academic Certificate Request'
+  );
+
+  // Example C: "I want to apply for leave because I am sick."
+  const exC = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I want to apply for leave because I am sick.',
+  });
+  assert(
+    exC.workflowKey === 'LEAVE_REQUEST' && exC.extractedData.leaveType === 'Medical',
+    'Example C: "I want to apply for leave because I am sick" -> Leave Request (Medical)'
+  );
+
+  // Example D: "I need permission to organize a technical event."
+  const exD = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I need permission to organize a technical event.',
+  });
+  assert(
+    exD.workflowKey === 'EVENT_PERMISSION',
+    'Example D: "I need permission to organize a technical event" -> Event Permission'
+  );
+
+  // Example E: "The projector in room 204 is not working."
+  const exE = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'The projector in room 204 is not working.',
+  });
+  assert(
+    exE.workflowKey === 'CAMPUS_COMPLAINT',
+    'Example E: "The projector in room 204 is not working" -> Campus Facility Complaint'
+  );
+
+  // Example F: "I lost my student ID card."
+  const exF = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I lost my student ID card.',
+  });
+  assert(
+    exF.workflowKey === 'LOST_AND_FOUND' && exF.extractedData.itemType === 'Campus ID Card',
+    'Example F: "I lost my student ID card" -> Lost & Found / Lost ID claim'
+  );
+
+  // Example G: "I need help with my scholarship application."
+  const exG = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I need help with my scholarship application.',
+  });
+  assert(
+    exG.workflowKey === 'SCHOLARSHIP_ASSISTANCE',
+    'Example G: "I need help with my scholarship application" -> Scholarship Assistance'
+  );
+
+  // Example H: "I have a problem with hostel water."
+  const exH = await runIntakeAgent({
+    userId: 'usr-student-alex',
+    message: 'I have a problem with hostel water.',
+  });
+  assert(
+    exH.workflowKey === 'HOSTEL_REQUEST' && exH.extractedData.requestType === 'Maintenance Request',
+    'Example H: "I have a problem with hostel water" -> Hostel Maintenance Request'
+  );
+
   console.log(`\n📊 AI Intake Test Summary: ${passed} Passed, ${failed} Failed`);
   if (failed > 0) {
     process.exit(1);
