@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getRequestTimeline } from '@/lib/workflows/service';
+import { getRequestTimeline, getWorkflowByKey, getWorkflowRequirements } from '@/lib/workflows/service';
+import { createSignedDocumentUrl } from '@/lib/storage/documents';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { canAccessRequest } from '@/lib/permissions';
 
@@ -28,8 +29,26 @@ export async function GET(
         department: true,
         assignedUser: true,
         requestData: true,
-        tasks: { include: { assignee: true } },
-        approvals: { include: { approver: true } },
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            createdAt: true,
+            assignee: { select: { name: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        approvals: {
+          select: {
+            id: true,
+            status: true,
+            comments: true,
+            createdAt: true,
+            approver: { select: { name: true, role: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         documents: true,
       },
     });
@@ -49,30 +68,30 @@ export async function GET(
       );
     }
 
-    const [timeline, { getWorkflowByKey, getWorkflowRequirements }, { createSignedDocumentUrl }] = await Promise.all([
-      getRequestTimeline(params.id),
-      import('@/lib/workflows/service'),
-      import('@/lib/storage/documents'),
-    ]);
-
     const workflowDefinition = getWorkflowByKey(request.workflow.key);
     const requirements = getWorkflowRequirements(request.workflow.key, request.currentStep);
 
-    // Generate signed download/view URLs for all attached documents
-    const documentsWithSignedUrls = await Promise.all(
-      (request.documents || []).map(async (doc) => {
-        let signedUrl = '';
-        try {
-          signedUrl = await createSignedDocumentUrl(doc.storageReference || doc.fileUrl, 3600);
-        } catch {
-          signedUrl = doc.fileUrl;
-        }
-        return {
-          ...doc,
-          signedUrl,
-        };
-      })
-    );
+    // Parallelize timeline generation and document signed URLs concurrently
+    const [timeline, documentsWithSignedUrls] = await Promise.all([
+      getRequestTimeline(params.id, {
+        tasks: request.tasks,
+        approvals: request.approvals,
+      }),
+      Promise.all(
+        (request.documents || []).map(async (doc) => {
+          let signedUrl = '';
+          try {
+            signedUrl = await createSignedDocumentUrl(doc.storageReference || doc.fileUrl, 3600);
+          } catch {
+            signedUrl = doc.fileUrl;
+          }
+          return {
+            ...doc,
+            signedUrl,
+          };
+        })
+      ),
+    ]);
 
     return NextResponse.json({
       success: true,

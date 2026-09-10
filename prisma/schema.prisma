@@ -178,6 +178,10 @@ model Request {
   @@index([departmentId])
   @@index([assignedUserId])
   @@index([status])
+  @@index([studentId, createdAt])
+  @@index([departmentId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
 }
 
 model RequestData {
@@ -206,6 +210,8 @@ model Task {
 
   @@index([requestId])
   @@index([assigneeId])
+  @@index([requestId, status])
+  @@index([assigneeId, status])
 }
 
 model Approval {
@@ -222,6 +228,8 @@ model Approval {
   updatedAt      DateTime       @updatedAt
 
   @@index([requestId])
+  @@index([requestId, stepOrder])
+  @@index([approverId])
 }
 
 model Document {
@@ -242,6 +250,8 @@ model Document {
   createdAt          DateTime @default(now())
 
   @@index([requestId])
+  @@index([requestId, verificationStatus])
+  @@index([uploadedById])
 }
 
 model Notification {
@@ -258,6 +268,8 @@ model Notification {
   createdAt      DateTime @default(now())
 
   @@index([userId])
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model AuditLog {
@@ -272,6 +284,8 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([requestId])
+  @@index([requestId, createdAt])
+  @@index([actorId])
 }
 
 model AgentRun {
@@ -294,4 +308,5 @@ model AgentRun {
   createdAt       DateTime  @default(now())
 
   @@index([requestId])
+  @@index([requestId, createdAt])
 }

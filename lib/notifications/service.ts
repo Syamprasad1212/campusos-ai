@@ -26,12 +26,13 @@ export interface NotifyEventInput {
 export async function resolveNotificationRecipients(
   eventType: WorkflowEventType,
   requestId: string,
-  stepOrder?: number
+  stepOrder?: number,
+  existingRequest?: { studentId: string; departmentId: string }
 ): Promise<string[]> {
-  const request = await db.request.findUnique({
+  const request = existingRequest || (await db.request.findUnique({
     where: { id: requestId },
-    include: { student: true, workflow: true, department: true },
-  });
+    select: { studentId: true, departmentId: true },
+  }));
 
   if (!request) {
     return [];
@@ -171,34 +172,38 @@ export async function notifyWorkflowEvent(input: NotifyEventInput): Promise<void
 
     if (!request) return;
 
-    // Resolves recipients deterministically
-    const recipientUserIds = await resolveNotificationRecipients(eventType, requestId, stepOrder);
+    // Resolves recipients deterministically without duplicate DB request lookup
+    const [recipientUserIds, wording] = await Promise.all([
+      resolveNotificationRecipients(eventType, requestId, stepOrder, request),
+      generateNotificationWording({
+        eventType,
+        requestTitle: request.title,
+        workflowName: request.workflow.name,
+        studentName: request.student.name,
+        departmentName: request.department.name,
+        reason: metadata?.reason,
+        message: metadata?.message,
+        stepOrder,
+      }),
+    ]);
+
     if (recipientUserIds.length === 0) return;
 
-    // AI Notification Wording (with fallback to template text if LLM fails)
-    const wording = await generateNotificationWording({
-      eventType,
-      requestTitle: request.title,
-      workflowName: request.workflow.name,
-      studentName: request.student.name,
-      departmentName: request.department.name,
-      reason: metadata?.reason,
-      message: metadata?.message,
-      stepOrder,
-    });
-
-    for (const userId of recipientUserIds) {
-      const idempotencyKey = `${requestId}:${userId}:${eventType}:${stepOrder || request.currentStep}`;
-      await createIdempotentNotification({
-        userId,
-        title: wording.title,
-        message: wording.message,
-        requestId,
-        eventType,
-        stepOrder: stepOrder || request.currentStep,
-        idempotencyKey,
-      });
-    }
+    // Parallelize idempotent persistence across all recipients
+    await Promise.all(
+      recipientUserIds.map((userId) => {
+        const idempotencyKey = `${requestId}:${userId}:${eventType}:${stepOrder || request.currentStep}`;
+        return createIdempotentNotification({
+          userId,
+          title: wording.title,
+          message: wording.message,
+          requestId,
+          eventType,
+          stepOrder: stepOrder || request.currentStep,
+          idempotencyKey,
+        });
+      })
+    );
   } catch (err: any) {
     console.warn('[NOTIFICATION_TRIGGER_NON_BLOCKING_ERROR] Notification processing error:', err.message);
   }
@@ -208,15 +213,16 @@ export async function notifyWorkflowEvent(input: NotifyEventInput): Promise<void
  * 4. GET USER NOTIFICATIONS
  */
 export async function getUserNotifications(userId: string) {
-  const notifications = await db.notification.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-  });
-
-  const unreadCount = await db.notification.count({
-    where: { userId, isRead: false },
-  });
+  const [notifications, unreadCount] = await Promise.all([
+    db.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+    db.notification.count({
+      where: { userId, isRead: false },
+    }),
+  ]);
 
   return {
     notifications,

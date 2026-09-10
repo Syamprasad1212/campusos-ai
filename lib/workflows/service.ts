@@ -828,24 +828,52 @@ export async function appendAuditLog(
 /**
  * Get unified audit timeline events for student request tracking
  */
-export async function getRequestTimeline(requestId: string): Promise<TimelineEvent[]> {
-  const auditLogs = await db.auditLog.findMany({
-    where: { requestId },
-    include: { actor: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const tasks = await db.task.findMany({
-    where: { requestId },
-    include: { assignee: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const approvals = await db.approval.findMany({
-    where: { requestId },
-    include: { approver: true },
-    orderBy: { createdAt: 'asc' },
-  });
+export async function getRequestTimeline(
+  requestId: string,
+  preloaded?: {
+    tasks?: Array<{ id: string; title: string; status: string; createdAt: Date | string; assignee?: { name: string } | null }>;
+    approvals?: Array<{ id: string; status: string; comments?: string | null; createdAt: Date | string; approver?: { name: string; role: string } | null }>;
+  }
+): Promise<TimelineEvent[]> {
+  const [auditLogs, tasks, approvals] = await Promise.all([
+    db.auditLog.findMany({
+      where: { requestId },
+      select: {
+        id: true,
+        action: true,
+        metadata: true,
+        createdAt: true,
+        actor: { select: { id: true, name: true, role: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
+    preloaded?.tasks
+      ? Promise.resolve(preloaded.tasks)
+      : db.task.findMany({
+          where: { requestId },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            createdAt: true,
+            assignee: { select: { name: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        }),
+    preloaded?.approvals
+      ? Promise.resolve(preloaded.approvals)
+      : db.approval.findMany({
+          where: { requestId },
+          select: {
+            id: true,
+            status: true,
+            comments: true,
+            createdAt: true,
+            approver: { select: { name: true, role: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        }),
+  ]);
 
   const events: TimelineEvent[] = [];
 
@@ -873,7 +901,7 @@ export async function getRequestTimeline(requestId: string): Promise<TimelineEve
 
     events.push({
       id: log.id,
-      timestamp: log.createdAt.toISOString(),
+      timestamp: new Date(log.createdAt).toISOString(),
       title: log.action.replace(/_/g, ' '),
       description,
       actorName: log.actor?.name || 'System',
@@ -886,7 +914,7 @@ export async function getRequestTimeline(requestId: string): Promise<TimelineEve
   for (const task of tasks) {
     events.push({
       id: task.id,
-      timestamp: task.createdAt.toISOString(),
+      timestamp: new Date(task.createdAt).toISOString(),
       title: `Task: ${task.title}`,
       description: `Task status: ${task.status}`,
       actorName: task.assignee?.name || 'Unassigned Staff',
@@ -897,7 +925,7 @@ export async function getRequestTimeline(requestId: string): Promise<TimelineEve
   for (const app of approvals) {
     events.push({
       id: app.id,
-      timestamp: app.createdAt.toISOString(),
+      timestamp: new Date(app.createdAt).toISOString(),
       title: `Approval: ${app.status}`,
       description: app.comments || 'Review completed',
       actorName: app.approver?.name || 'Authorized Approver',

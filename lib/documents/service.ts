@@ -22,16 +22,18 @@ export interface UploadDocumentInput {
 export async function processAndStoreDocument(input: UploadDocumentInput) {
   const { requestId, uploaderId, fileName, mimeType, fileBuffer } = input;
 
-  // 1. Authenticate & fetch user and request
-  const user = await db.user.findUnique({ where: { id: uploaderId } });
+  // 1. Authenticate & fetch user and request in parallel
+  const [user, request] = await Promise.all([
+    db.user.findUnique({ where: { id: uploaderId } }),
+    db.request.findUnique({
+      where: { id: requestId },
+      include: { workflow: true, department: true },
+    }),
+  ]);
+
   if (!user) {
     throw new Error(`[USER_NOT_FOUND] User with ID "${uploaderId}" not found.`);
   }
-
-  const request = await db.request.findUnique({
-    where: { id: requestId },
-    include: { workflow: true, department: true },
-  });
 
   if (!request) {
     throw new Error(`[REQUEST_NOT_FOUND] Request with ID "${requestId}" not found.`);
@@ -122,37 +124,38 @@ export async function processAndStoreDocument(input: UploadDocumentInput) {
     },
   });
 
-  // 8. Append Audit Log Entries
-  await db.auditLog.create({
-    data: {
-      requestId,
-      actorId: user.id,
-      action: 'DOCUMENT_UPLOADED',
-      metadata: JSON.parse(
-        JSON.stringify({
-          documentId: document.id,
-          fileName,
-          documentType: finalDocType,
-          fileSize: fileBuffer.length,
-        })
-      ),
-    },
-  });
-
-  await db.auditLog.create({
-    data: {
-      requestId,
-      actorId: user.id,
-      action: validation.status === 'VERIFIED' ? 'DOCUMENT_VALIDATED' : 'DOCUMENT_REVIEW_REQUIRED',
-      metadata: JSON.parse(
-        JSON.stringify({
-          documentId: document.id,
-          verificationStatus: validation.status,
-          warnings: validation.warnings,
-        })
-      ),
-    },
-  });
+  // 8. Append Audit Log Entries in parallel
+  await Promise.all([
+    db.auditLog.create({
+      data: {
+        requestId,
+        actorId: user.id,
+        action: 'DOCUMENT_UPLOADED',
+        metadata: JSON.parse(
+          JSON.stringify({
+            documentId: document.id,
+            fileName,
+            documentType: finalDocType,
+            fileSize: fileBuffer.length,
+          })
+        ),
+      },
+    }),
+    db.auditLog.create({
+      data: {
+        requestId,
+        actorId: user.id,
+        action: validation.status === 'VERIFIED' ? 'DOCUMENT_VALIDATED' : 'DOCUMENT_REVIEW_REQUIRED',
+        metadata: JSON.parse(
+          JSON.stringify({
+            documentId: document.id,
+            verificationStatus: validation.status,
+            warnings: validation.warnings,
+          })
+        ),
+      },
+    }),
+  ]);
 
   return {
     document,
@@ -171,16 +174,18 @@ export async function verifyDocumentByStaff(input: {
 }) {
   const { documentId, actorId, status, reason } = input;
 
-  const doc = await db.document.findUnique({
-    where: { id: documentId },
-    include: { request: true },
-  });
+  const [doc, actor] = await Promise.all([
+    db.document.findUnique({
+      where: { id: documentId },
+      include: { request: true },
+    }),
+    db.user.findUnique({ where: { id: actorId } }),
+  ]);
 
   if (!doc) {
     throw new Error(`[DOCUMENT_NOT_FOUND] Document with ID "${documentId}" not found.`);
   }
 
-  const actor = await db.user.findUnique({ where: { id: actorId } });
   if (!actor) {
     throw new Error(`[USER_NOT_FOUND] Staff user not found.`);
   }

@@ -439,8 +439,12 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
                           onClick={() => handleDocumentVerification(doc.id, 'VERIFIED')}
                           className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm disabled:opacity-50 transition"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Mark Verified
+                          {actionLoading ? (
+                            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          ) : (
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          )}
+                          {actionLoading ? 'Verifying document...' : 'Mark Verified'}
                         </button>
 
                         <button
