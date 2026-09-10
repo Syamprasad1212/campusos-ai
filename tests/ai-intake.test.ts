@@ -107,9 +107,9 @@ async function runAiIntakeTests() {
   );
 
   // =========================================================================
-  // NATURAL-LANGUAGE TEST SUITE (EXAMPLES A THROUGH H)
+  // NATURAL-LANGUAGE TEST SUITE (EXAMPLES A THROUGH H) - SAFETY & NON-FABRICATION
   // =========================================================================
-  console.log('\n  --- Testing Mandatory Natural-Language Prompts (A-H) ---');
+  console.log('\n  --- Testing Mandatory Natural-Language Prompts (A-H) & Fact Non-Fabrication ---');
 
   // Example A: "I need a bonafide certificate for an education loan."
   const exA = await runIntakeAgent({
@@ -117,8 +117,13 @@ async function runAiIntakeTests() {
     message: 'I need a bonafide certificate for an education loan.',
   });
   assert(
-    exA.workflowKey === 'CERTIFICATE_REQUEST' && exA.extractedData.certificateType === 'Bona Fide',
-    'Example A: "I need a bonafide certificate for an education loan" -> Academic Certificate Request (Bona Fide)'
+    exA.workflowKey === 'CERTIFICATE_REQUEST' &&
+    exA.extractedData.certificateType === 'Bona Fide' &&
+    typeof exA.extractedData.purpose === 'string' &&
+    exA.extractedData.purpose.toLowerCase().includes('loan') &&
+    exA.missingFields.length === 0 &&
+    exA.nextAction === 'PREVIEW_WORKFLOW',
+    'Example A: "I need a bonafide certificate for an education loan" -> Academic Certificate Request (Bona Fide, loan purpose, ready)'
   );
 
   // Example B: "I need proof that I am a student for my bank education loan."
@@ -127,8 +132,11 @@ async function runAiIntakeTests() {
     message: 'I need proof that I am a student for my bank education loan.',
   });
   assert(
-    exB.workflowKey === 'CERTIFICATE_REQUEST',
-    'Example B: "I need proof that I am a student for my bank education loan" -> Academic Certificate Request'
+    exB.workflowKey === 'CERTIFICATE_REQUEST' &&
+    exB.extractedData.certificateType === 'Bona Fide' &&
+    typeof exB.extractedData.purpose === 'string' &&
+    exB.missingFields.length === 0,
+    'Example B: "I need proof that I am a student for my bank education loan" -> Academic Certificate Request (Bona Fide, loan purpose)'
   );
 
   // Example C: "I want to apply for leave because I am sick."
@@ -137,8 +145,15 @@ async function runAiIntakeTests() {
     message: 'I want to apply for leave because I am sick.',
   });
   assert(
-    exC.workflowKey === 'LEAVE_REQUEST' && exC.extractedData.leaveType === 'Medical',
-    'Example C: "I want to apply for leave because I am sick" -> Leave Request (Medical)'
+    exC.workflowKey === 'LEAVE_REQUEST' &&
+    exC.extractedData.leaveType === 'Medical' &&
+    exC.extractedData.startDate === undefined &&
+    exC.extractedData.endDate === undefined &&
+    exC.missingFields.includes('startDate') &&
+    exC.missingFields.includes('endDate') &&
+    exC.nextAction === 'ASK_FOR_INFORMATION' &&
+    exC.explanation.toLowerCase().includes('date'),
+    'Example C: "I want to apply for leave because I am sick" -> Leave Request (Medical, NO fabricated dates, asks for dates)'
   );
 
   // Example D: "I need permission to organize a technical event."
@@ -147,8 +162,17 @@ async function runAiIntakeTests() {
     message: 'I need permission to organize a technical event.',
   });
   assert(
-    exD.workflowKey === 'EVENT_PERMISSION',
-    'Example D: "I need permission to organize a technical event" -> Event Permission'
+    exD.workflowKey === 'EVENT_PERMISSION' &&
+    exD.extractedData.eventName === 'Technical Event' &&
+    exD.extractedData.venue === undefined &&
+    exD.extractedData.eventDate === undefined &&
+    exD.extractedData.expectedParticipants === undefined &&
+    exD.missingFields.includes('venue') &&
+    exD.missingFields.includes('eventDate') &&
+    exD.missingFields.includes('expectedParticipants') &&
+    exD.nextAction === 'ASK_FOR_INFORMATION' &&
+    (exD.explanation.toLowerCase().includes('venue') || exD.explanation.toLowerCase().includes('held')),
+    'Example D: "I need permission to organize a technical event" -> Event Permission (NO fabricated venue/dates/participants, asks for missing fields)'
   );
 
   // Example E: "The projector in room 204 is not working."
@@ -157,8 +181,11 @@ async function runAiIntakeTests() {
     message: 'The projector in room 204 is not working.',
   });
   assert(
-    exE.workflowKey === 'CAMPUS_COMPLAINT',
-    'Example E: "The projector in room 204 is not working" -> Campus Facility Complaint'
+    exE.workflowKey === 'CAMPUS_COMPLAINT' &&
+    exE.extractedData.category !== 'HVAC' &&
+    exE.extractedData.category === 'Electrical' &&
+    exE.extractedData.location === 'Room 204',
+    'Example E: "The projector in room 204 is not working" -> Campus Facility Complaint (Electrical, Room 204, NOT HVAC)'
   );
 
   // Example F: "I lost my student ID card."
@@ -167,8 +194,13 @@ async function runAiIntakeTests() {
     message: 'I lost my student ID card.',
   });
   assert(
-    exF.workflowKey === 'LOST_AND_FOUND' && exF.extractedData.itemType === 'Campus ID Card',
-    'Example F: "I lost my student ID card" -> Lost & Found / Lost ID claim'
+    exF.workflowKey === 'LOST_AND_FOUND' &&
+    exF.extractedData.itemType === 'Campus ID Card' &&
+    exF.extractedData.dateLostFound === undefined &&
+    exF.missingFields.includes('dateLostFound') &&
+    exF.nextAction === 'ASK_FOR_INFORMATION' &&
+    (exF.explanation.toLowerCase().includes('date') || exF.explanation.toLowerCase().includes('when')),
+    'Example F: "I lost my student ID card" -> Lost & Found (Campus ID Card, NO fabricated loss date, asks for date)'
   );
 
   // Example G: "I need help with my scholarship application."
@@ -177,8 +209,16 @@ async function runAiIntakeTests() {
     message: 'I need help with my scholarship application.',
   });
   assert(
-    exG.workflowKey === 'SCHOLARSHIP_ASSISTANCE',
-    'Example G: "I need help with my scholarship application" -> Scholarship Assistance'
+    exG.workflowKey === 'SCHOLARSHIP_ASSISTANCE' &&
+    exG.extractedData.scholarshipType === undefined &&
+    exG.extractedData.academicYear === undefined &&
+    exG.extractedData.incomeDetails === undefined &&
+    exG.missingFields.includes('scholarshipType') &&
+    exG.missingFields.includes('academicYear') &&
+    exG.missingFields.includes('incomeDetails') &&
+    exG.nextAction === 'ASK_FOR_INFORMATION' &&
+    exG.explanation.toLowerCase().includes('scholarship'),
+    'Example G: "I need help with my scholarship application" -> Scholarship Assistance (NO fabricated income/year/scheme, asks specifically)'
   );
 
   // Example H: "I have a problem with hostel water."
@@ -187,8 +227,12 @@ async function runAiIntakeTests() {
     message: 'I have a problem with hostel water.',
   });
   assert(
-    exH.workflowKey === 'HOSTEL_REQUEST' && exH.extractedData.requestType === 'Maintenance Request',
-    'Example H: "I have a problem with hostel water" -> Hostel Maintenance Request'
+    exH.workflowKey === 'HOSTEL_REQUEST' &&
+    exH.extractedData.requestType === 'Maintenance Request' &&
+    exH.extractedData.currentRoom === undefined &&
+    exH.missingFields.length === 0 &&
+    exH.nextAction === 'PREVIEW_WORKFLOW',
+    'Example H: "I have a problem with hostel water" -> Hostel Maintenance (NO fabricated room, optional room does not block, ready)'
   );
 
   console.log(`\n📊 AI Intake Test Summary: ${passed} Passed, ${failed} Failed`);

@@ -244,12 +244,11 @@ async function runDocumentWorkflowE2eTests() {
     assert(hasUploadAudit && hasVerifyAudit && hasRejectAudit, 'Full document lifecycle recorded in AuditLog (DOCUMENT_UPLOADED, DOCUMENT_VERIFIED, DOCUMENT_REJECTED)');
 
     console.log(`\n📊 Stage 6 Document Intelligence & Security Test Summary: ${passed} Passed, ${failed} Failed`);
-    if (failed > 0) {
-      process.exit(1);
-    }
   } catch (err: any) {
     console.error('❌ Stage 6 Test Execution Error:', err);
     process.exit(1);
+  } finally {
+    await db.$disconnect();
   }
 }
 

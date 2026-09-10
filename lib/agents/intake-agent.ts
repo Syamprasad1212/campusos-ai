@@ -61,13 +61,14 @@ export async function runIntakeAgent(input: {
   const systemPrompt = `You are the CampusOS AI Intake Agent for university operations.
 Your job is to match a student's natural-language request to ONE valid workflow definition.
 
-STRICT RULES:
-1. You MUST ONLY choose a workflowKey from the provided active workflow list. DO NOT invent workflow keys.
-2. Extract all relevant information from the student's request into extractedData matching the workflow's fields.
-3. For standard fields that have clear contextual defaults in university workflows (e.g., deliveryPreference="Digital PDF", priority="High" or "Medium", leaveType="Medical" or "Casual", dates starting from current date, itemType="Campus ID Card" for lost IDs, requestType="Maintenance Request" for hostel repairs), populate them cleanly so students are not burdened with unnecessary friction.
-4. If a genuinely required field is missing, state specifically what is needed (e.g. "I can process this as a Bona Fide Certificate request. What is the purpose of the certificate?").
-5. DO NOT return a generic "Please provide more information" message when the student's intent is clear.
-6. If confidence is below 0.60 or completely ambiguous, set workflowKey to null.
+CORE PRINCIPLES:
+1. INFER INTENT AGGRESSIVELY: Match the student's request to the correct workflowKey from the provided active workflow list. DO NOT invent workflow keys.
+2. INFER FACTS CONSERVATIVELY: Extract structured facts into extractedData.
+   - ONLY extract fields explicitly stated or safely and unmistakably implied by the user's wording (e.g., "sick" -> leaveType="Medical", "bona fide" -> certificateType="Bona Fide", "lost student ID card" -> itemType="Campus ID Card", "problem with hostel water" -> requestType="Maintenance Request").
+   - NEVER silently fabricate or invent user facts: do NOT invent dates, times, venues, participant counts, room numbers/locations, income amounts, scholarship schemes, academic years, course codes, or company names.
+   - For standard workflow system defaults explicitly defined by the workflow (e.g. deliveryPreference="Digital PDF" in certificate requests, priority="Medium" or "High" in maintenance complaints), safe system defaults may be populated.
+   - If a required fact is missing, omit it from extractedData so the system can ask specifically for it.
+3. If confidence is below 0.60 or completely ambiguous, set workflowKey to null.
 
 AVAILABLE WORKFLOWS:
 ${JSON.stringify(workflowSummaries, null, 2)}`;
@@ -123,11 +124,7 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
       explanation = `I could not clearly match your request to an existing campus workflow. Please rephrase or specify if this is a certificate, leave, maintenance, or permission request.`;
     } else if (missingFields.length > 0) {
       nextAction = 'ASK_FOR_INFORMATION';
-      const missingFieldLabels = missingFields.map((f) => {
-        const fieldDef = matchedWorkflow?.requiredFields.find((rf) => rf.key === f);
-        return fieldDef ? `"${fieldDef.label}"` : `"${f}"`;
-      });
-      explanation = `I can process this as a ${matchedWorkflow.title}. Please provide the required information: ${missingFieldLabels.join(', ')}.`;
+      explanation = buildTargetedMissingFieldsQuestion(matchedWorkflow, missingFields, aiResult.extractedData || {});
     } else {
       nextAction = 'PREVIEW_WORKFLOW';
       explanation = `Matched request to ${matchedWorkflow.title}. All required details are ready for confirmation.`;
@@ -171,4 +168,53 @@ ${JSON.stringify(workflowSummaries, null, 2)}`;
   });
 
   return result;
+}
+
+/**
+ * Build human-friendly targeted questions for missing required fields
+ */
+function buildTargetedMissingFieldsQuestion(
+  workflow: WorkflowDefinition,
+  missingFields: string[],
+  extractedData: Record<string, unknown>
+): string {
+  // 1. Leave Requests
+  if (workflow.key === 'LEAVE_REQUEST' && (missingFields.includes('startDate') || missingFields.includes('endDate'))) {
+    const leaveType = extractedData.leaveType ? ` (${extractedData.leaveType})` : '';
+    return `I can process this as a Leave Application${leaveType}. What date should your leave start, and when should it end?`;
+  }
+
+  // 2. Event Permissions
+  if (workflow.key === 'EVENT_PERMISSION') {
+    return `I can process this as a Campus Event Approval request. What date is the event, where will it be held (e.g. Main Auditorium, Seminar Hall A, Open Air Theatre, Sports Ground), and approximately how many participants are expected?`;
+  }
+
+  // 3. Lost and Found
+  if (workflow.key === 'LOST_AND_FOUND' && missingFields.includes('dateLostFound')) {
+    const itemType = extractedData.itemType ? ` for your ${extractedData.itemType}` : '';
+    return `I can process this as a Lost ID & Belongings Claim${itemType}. On what date was the item lost or found?`;
+  }
+
+  // 4. Scholarship Assistance
+  if (workflow.key === 'SCHOLARSHIP_ASSISTANCE') {
+    return `I can process this as a Scholarship Assistance Application. Please specify the scholarship scheme, academic year, and your family's annual income details.`;
+  }
+
+  // 5. Campus Complaints
+  if (workflow.key === 'CAMPUS_COMPLAINT' && missingFields.includes('location')) {
+    return `I can process this as a Campus Facility Complaint. What is the location or room number of the issue?`;
+  }
+
+  // 6. Certificate Requests
+  if (workflow.key === 'CERTIFICATE_REQUEST' && missingFields.includes('purpose')) {
+    const certType = extractedData.certificateType ? ` for a ${extractedData.certificateType}` : '';
+    return `I can process this as an Academic Certificate Request${certType}. What is the specific purpose of the certificate (e.g. Bank Loan, Higher Studies, Visa, Job Application)?`;
+  }
+
+  // 7. General Workflow Fallback with precise labels
+  const missingFieldLabels = missingFields.map((f) => {
+    const fieldDef = workflow.requiredFields.find((rf) => rf.key === f);
+    return fieldDef ? `"${fieldDef.label}"` : `"${f}"`;
+  });
+  return `I can process this as a ${workflow.title}. Please provide the required information: ${missingFieldLabels.join(', ')}.`;
 }

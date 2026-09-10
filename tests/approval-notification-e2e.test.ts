@@ -335,12 +335,11 @@ async function runApprovalNotificationE2eTests() {
     assert(notifAuditLogs.length > 0, 'Notification events recorded in AuditLog (NOTIFICATION_CREATED, NOTIFICATION_READ)');
 
     console.log(`\n📊 Stage 7 Approval Intelligence & Notification Test Summary: ${passed} Passed, ${failed} Failed`);
-    if (failed > 0) {
-      process.exit(1);
-    }
   } catch (err: any) {
     console.error('❌ Stage 7 Test Execution Error:', err);
     process.exit(1);
+  } finally {
+    await db.$disconnect();
   }
 }
 

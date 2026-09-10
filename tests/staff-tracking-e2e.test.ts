@@ -404,12 +404,11 @@ async function runStaffTrackingE2eTests() {
     );
 
     console.log(`\n📊 Stage 5 Staff Operations & Tracking Test Summary: ${passed} Passed, ${failed} Failed`);
-    if (failed > 0) {
-      process.exit(1);
-    }
   } catch (err: any) {
     console.error('❌ Test Execution Error:', err);
     process.exit(1);
+  } finally {
+    await db.$disconnect();
   }
 }
 

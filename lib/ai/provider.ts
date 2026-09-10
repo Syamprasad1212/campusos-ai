@@ -59,10 +59,16 @@ export async function generateStructuredResponse<T>(
 
 /**
  * Local Deterministic Intent & Field Extractor (Fallback Engine)
+ * 
+ * CORE PRINCIPLE:
+ * INFER INTENT AGGRESSIVELY, BUT INFER FACTS CONSERVATIVELY.
+ * - Match workflow intent from natural language.
+ * - Extract explicit facts and safe semantic inferences.
+ * - NEVER fabricate user-provided facts (dates, venues, participant counts,
+ *   unmentioned rooms, scholarship types/income, etc.).
  */
 function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unknown> {
   const text = prompt.toLowerCase();
-  const today = new Date().toISOString().split('T')[0];
 
   // 1. Certificate Requests & Student Verification Proofs
   if (
@@ -79,8 +85,8 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
   ) {
     let certType = 'Bona Fide';
     if (text.includes('transcript')) certType = 'Transcript';
-    if (text.includes('degree')) certType = 'Degree Copy';
-    if (text.includes('course completion')) certType = 'Course Completion';
+    else if (text.includes('degree')) certType = 'Degree Copy';
+    else if (text.includes('course completion')) certType = 'Course Completion';
 
     let purpose: string | undefined = undefined;
     if (text.includes('loan') || text.includes('bank')) purpose = 'Bank education loan application';
@@ -125,8 +131,12 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
   ) {
     let itemType = 'Campus ID Card';
     if (text.includes('phone') || text.includes('laptop') || text.includes('electronics')) itemType = 'Electronics';
-    if (text.includes('document') || text.includes('passport') || text.includes('certificate')) itemType = 'Personal Documents';
-    if (text.includes('key')) itemType = 'Keys';
+    else if (text.includes('document') || text.includes('passport') || text.includes('certificate')) itemType = 'Personal Documents';
+    else if (text.includes('key')) itemType = 'Keys';
+
+    // Extract date ONLY if explicitly in prompt; do NOT invent today's date
+    const dateMatch = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    const dateLostFound = dateMatch ? dateMatch[1] : undefined;
 
     return {
       workflowKey: 'LOST_AND_FOUND',
@@ -134,7 +144,7 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
       confidence: 0.95,
       extractedData: {
         itemType,
-        dateLostFound: today,
+        ...(dateLostFound ? { dateLostFound } : {}),
         description: prompt,
       },
       explanation: `Identified Lost & Found / Lost ID claim for ${itemType}.`,
@@ -152,8 +162,13 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
   ) {
     let leaveType = 'Casual';
     if (text.includes('medical') || text.includes('sick') || text.includes('fever') || text.includes('hospital')) leaveType = 'Medical';
-    if (text.includes('duty') || text.includes('competition') || text.includes('conference')) leaveType = 'Duty Leave';
-    if (text.includes('emergency') || text.includes('urgent')) leaveType = 'Emergency';
+    else if (text.includes('duty') || text.includes('competition') || text.includes('conference')) leaveType = 'Duty Leave';
+    else if (text.includes('emergency') || text.includes('urgent')) leaveType = 'Emergency';
+
+    // Extract dates ONLY if explicitly provided in prompt
+    const dateMatches = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/g);
+    const startDate = dateMatches && dateMatches[0] ? dateMatches[0] : undefined;
+    const endDate = dateMatches && dateMatches[1] ? dateMatches[1] : undefined;
 
     return {
       workflowKey: 'LEAVE_REQUEST',
@@ -161,11 +176,11 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
       confidence: 0.94,
       extractedData: {
         leaveType,
-        startDate: today,
-        endDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
         reason: prompt,
       },
-      explanation: `Identified Leave Application (${leaveType} leave) starting from ${today}.`,
+      explanation: `Identified Leave Application (${leaveType} leave).`,
     };
   }
 
@@ -173,8 +188,12 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
   if (text.includes('hostel') || text.includes('dorm') || text.includes('warden') || text.includes('room change') || text.includes('hostel water')) {
     let requestType = 'Maintenance Request';
     if (text.includes('allotment') || text.includes('new room') || text.includes('admission')) requestType = 'New Allotment';
-    if (text.includes('change') || text.includes('shift') || text.includes('switch')) requestType = 'Room Change';
-    if (text.includes('storage') || text.includes('vacation')) requestType = 'Vacation Storage';
+    else if (text.includes('change') || text.includes('shift') || text.includes('switch')) requestType = 'Room Change';
+    else if (text.includes('storage') || text.includes('vacation')) requestType = 'Vacation Storage';
+
+    // Extract room number if stated, otherwise keep optional currentRoom omitted
+    const roomMatch = prompt.match(/room\s*(\d+[a-zA-Z]?|[a-zA-Z]+\s*\d+)/i) || prompt.match(/block\s*([a-zA-Z0-9]+)/i);
+    const currentRoom = roomMatch ? `Room ${roomMatch[1]}` : undefined;
 
     return {
       workflowKey: 'HOSTEL_REQUEST',
@@ -182,7 +201,7 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
       confidence: 0.93,
       extractedData: {
         requestType,
-        currentRoom: 'Hostel Block B',
+        ...(currentRoom ? { currentRoom } : {}),
         details: prompt,
       },
       explanation: `Identified Hostel Allotment & Maintenance request (${requestType}).`,
@@ -203,43 +222,67 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
     text.includes('repair') ||
     text.includes('leak') ||
     text.includes('water') ||
-    text.includes('not working')
+    text.includes('not working') ||
+    text.includes('plumbing') ||
+    text.includes('electrical')
   ) {
-    let category = 'Electrical';
+    let category: string | undefined = undefined;
     if (text.includes('wifi') || text.includes('wi-fi') || text.includes('internet') || text.includes('network')) category = 'Wi-Fi/Network';
-    if (text.includes('projector') || text.includes('ac') || text.includes('hvac')) category = 'HVAC';
-    if (text.includes('plumb') || text.includes('water') || text.includes('pipe') || text.includes('leak') || text.includes('tap')) category = 'Plumbing';
-    if (text.includes('clean') || text.includes('washroom') || text.includes('dust') || text.includes('trash')) category = 'Cleanliness';
+    else if (text.includes('ac') || text.includes('air condition') || text.includes('hvac') || text.includes('cooling') || text.includes('heater')) category = 'HVAC';
+    else if (text.includes('plumb') || text.includes('water') || text.includes('pipe') || text.includes('leak') || text.includes('tap')) category = 'Plumbing';
+    else if (text.includes('clean') || text.includes('washroom') || text.includes('dust') || text.includes('trash') || text.includes('garbage')) category = 'Cleanliness';
+    else if (text.includes('projector') || text.includes('electrical') || text.includes('power') || text.includes('light') || text.includes('socket') || text.includes('switch') || text.includes('wire')) category = 'Electrical';
 
-    // Extract room number if present
-    const roomMatch = prompt.match(/room\s*(\d+[a-zA-Z]?|[a-zA-Z]+\s*\d+)/i) || prompt.match(/hall\s*([a-zA-Z0-9]+)/i);
-    const location = roomMatch ? `Room ${roomMatch[1]}` : 'Classroom 204';
+    // Extract room/location ONLY if present in prompt
+    const roomMatch = prompt.match(/room\s*(\d+[a-zA-Z]?|[a-zA-Z]+\s*\d+)/i) || prompt.match(/hall\s*([a-zA-Z0-9]+)/i) || prompt.match(/lab\s*([a-zA-Z0-9]+)/i);
+    const location = roomMatch ? `Room ${roomMatch[1]}` : undefined;
 
     return {
       workflowKey: 'CAMPUS_COMPLAINT',
-      intent: `Report ${category} maintenance issue at ${location}`,
+      intent: `Report maintenance issue${location ? ` at ${location}` : ''}`,
       confidence: 0.95,
       extractedData: {
-        category,
-        location,
-        priority: 'High',
+        ...(category ? { category } : {}),
+        ...(location ? { location } : {}),
+        priority: text.includes('urgent') || text.includes('emergency') || text.includes('immediately') ? 'High' : 'Medium',
         description: prompt,
       },
-      explanation: `Identified Campus Facility Complaint (${category}) at ${location}.`,
+      explanation: `Identified Campus Facility Complaint${category ? ` (${category})` : ''}${location ? ` at ${location}` : ''}.`,
     };
   }
 
   // 6. Campus Event Approvals
   if (text.includes('event') || text.includes('auditorium') || text.includes('symposium') || text.includes('hackathon') || text.includes('organize') || text.includes('workshop')) {
+    let eventName = 'Technical Event';
+    if (text.includes('hackathon')) eventName = 'Campus Hackathon';
+    else if (text.includes('symposium')) eventName = 'Technical Symposium';
+    else if (text.includes('workshop')) eventName = 'Technical Workshop';
+    else if (text.includes('seminar')) eventName = 'Academic Seminar';
+
+    // Extract date ONLY if present
+    const dateMatch = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    const eventDate = dateMatch ? dateMatch[1] : undefined;
+
+    // Extract venue ONLY if explicitly stated in prompt
+    let venue: string | undefined = undefined;
+    if (text.includes('auditorium')) venue = 'Main Auditorium';
+    else if (text.includes('open air') || text.includes('theatre')) venue = 'Open Air Theatre';
+    else if (text.includes('seminar hall')) venue = 'Seminar Hall A';
+    else if (text.includes('sports ground') || text.includes('ground')) venue = 'Sports Ground';
+
+    // Extract participant count ONLY if explicitly stated in prompt
+    const participantMatch = prompt.match(/(\d+)\s*(people|students|participants|attendees)/i);
+    const expectedParticipants = participantMatch ? parseInt(participantMatch[1], 10) : undefined;
+
     return {
       workflowKey: 'EVENT_PERMISSION',
       intent: 'Request permission and venue for campus event',
       confidence: 0.93,
       extractedData: {
-        eventName: 'Technical Event',
-        eventDate: new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
-        venue: 'Seminar Hall A',
-        expectedParticipants: 100,
+        eventName,
+        ...(eventDate ? { eventDate } : {}),
+        ...(venue ? { venue } : {}),
+        ...(expectedParticipants ? { expectedParticipants } : {}),
         description: prompt,
       },
       explanation: 'Identified Campus Event Approval request.',
@@ -248,14 +291,28 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
 
   // 7. Scholarship Assistance
   if (text.includes('scholarship') || text.includes('financial aid') || text.includes('grant') || text.includes('fee waiver')) {
+    // Extract scholarship scheme ONLY if explicitly mentioned
+    let scholarshipType: string | undefined = undefined;
+    if (text.includes('merit')) scholarshipType = 'Merit Scholarship';
+    else if (text.includes('need-based') || text.includes('need based')) scholarshipType = 'Need-Based Financial Aid';
+    else if (text.includes('sports')) scholarshipType = 'Sports Scholarship';
+
+    // Extract academic year ONLY if mentioned
+    const yearMatch = prompt.match(/\b(20\d{2}-20\d{2}|20\d{2})\b/);
+    const academicYear = yearMatch ? yearMatch[1] : undefined;
+
+    // Extract income details ONLY if mentioned
+    const incomeMatch = prompt.match(/income\s*(?:of|is|below|under)?\s*([0-9,]+)/i);
+    const incomeDetails = incomeMatch ? `Annual income ${incomeMatch[1]}` : undefined;
+
     return {
       workflowKey: 'SCHOLARSHIP_ASSISTANCE',
       intent: 'Apply for scholarship and financial assistance',
       confidence: 0.94,
       extractedData: {
-        scholarshipType: 'Merit Scholarship',
-        academicYear: '2025-2026',
-        incomeDetails: 'Family Annual Income below statutory threshold',
+        ...(scholarshipType ? { scholarshipType } : {}),
+        ...(academicYear ? { academicYear } : {}),
+        ...(incomeDetails ? { incomeDetails } : {}),
       },
       explanation: 'Identified Scholarship Assistance application.',
     };
@@ -263,15 +320,17 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
 
   // 8. Internship & NOC Documents
   if (text.includes('internship') || text.includes('noc') || text.includes('offer letter') || text.includes('intern')) {
+    const dateMatches = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/g);
+    const startDate = dateMatches && dateMatches[0] ? dateMatches[0] : undefined;
+    const endDate = dateMatches && dateMatches[1] ? dateMatches[1] : undefined;
+
     return {
       workflowKey: 'INTERNSHIP_DOCUMENTS',
       intent: 'Request Internship NOC and Document Clearance',
       confidence: 0.93,
       extractedData: {
-        companyName: 'Partner Organization',
-        role: 'Software Intern',
-        startDate: new Date(Date.now() + 86400000 * 14).toISOString().split('T')[0],
-        endDate: new Date(Date.now() + 86400000 * 75).toISOString().split('T')[0],
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
         offerLetter: prompt,
       },
       explanation: 'Identified NOC & Internship Clearance request.',
@@ -280,13 +339,20 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
 
   // 9. Transport Services
   if (text.includes('transport') || text.includes('bus pass') || text.includes('shuttle') || text.includes('bus route')) {
+    let serviceType = 'Bus Pass Issuance';
+    if (text.includes('route change')) serviceType = 'Route Change';
+    else if (text.includes('shuttle')) serviceType = 'Special Event Shuttle';
+
+    const pickupMatch = prompt.match(/from\s+([a-zA-Z0-9\s]+?)(?:\s+to|\.|$)/i);
+    const pickupPoint = pickupMatch ? pickupMatch[1].trim() : undefined;
+
     return {
       workflowKey: 'TRANSPORT_REQUEST',
       intent: 'Request campus transport or bus pass',
       confidence: 0.92,
       extractedData: {
-        serviceType: 'Bus Pass Issuance',
-        pickupPoint: 'Main Campus Gate',
+        serviceType,
+        ...(pickupPoint ? { pickupPoint } : {}),
       },
       explanation: 'Identified Campus Transport Services request.',
     };
@@ -294,13 +360,21 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
 
   // 10. Fee Issues & Installments
   if (text.includes('fee') || text.includes('tuition') || text.includes('installment') || text.includes('refund')) {
+    let issueType = 'Installment Request';
+    if (text.includes('extension') || text.includes('deadline')) issueType = 'Deadline Extension';
+    else if (text.includes('discrepancy')) issueType = 'Payment Discrepancy';
+    else if (text.includes('refund')) issueType = 'Refund Inquiry';
+
+    const amountMatch = prompt.match(/(?:amount|rs\.?|\$|inr)\s*([0-9,]+)/i) || prompt.match(/([0-9,]+)\s*(?:rupees|dollars|inr)/i);
+    const amount = amountMatch ? parseInt(amountMatch[1].replace(/,/g, ''), 10) : undefined;
+
     return {
       workflowKey: 'FEE_ASSISTANCE',
       intent: 'Request fee installment or resolution',
       confidence: 0.92,
       extractedData: {
-        issueType: 'Installment Request',
-        amount: 1500,
+        issueType,
+        ...(amount !== undefined ? { amount } : {}),
         reason: prompt,
       },
       explanation: 'Identified Fee Installment & Payment Issue request.',
@@ -309,13 +383,21 @@ function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unkno
 
   // 11. Student Clubs
   if (text.includes('club') || text.includes('society') || text.includes('recruitment drive')) {
+    let activityType = 'Workshop Authorization';
+    if (text.includes('new club') || text.includes('register')) activityType = 'New Club Registration';
+    else if (text.includes('budget')) activityType = 'Budget Request';
+    else if (text.includes('recruitment')) activityType = 'Recruitment Drive';
+
+    const clubMatch = prompt.match(/club\s+([a-zA-Z0-9\s]+?)(?:\s+for|\.|$)/i) || prompt.match(/([a-zA-Z0-9\s]+)\s+club/i);
+    const clubName = clubMatch ? clubMatch[1].trim() : undefined;
+
     return {
       workflowKey: 'CLUB_PERMISSION',
       intent: 'Submit student club activity authorization',
       confidence: 0.91,
       extractedData: {
-        clubName: 'Student Technical Society',
-        activityType: 'Workshop Authorization',
+        ...(clubName ? { clubName } : {}),
+        activityType,
         description: prompt,
       },
       explanation: 'Identified Student Club Activity Authorization.',
