@@ -6,6 +6,8 @@
  * The rest of the application depends strictly on this abstraction layer.
  */
 
+import { logger } from '@/lib/observability/logger';
+
 export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
@@ -18,6 +20,7 @@ export async function generateStructuredResponse<T>(
 ): Promise<T> {
   const apiKey = process.env.LLM_API_KEY;
   const model = process.env.LLM_MODEL || 'gemini-1.5-pro';
+  const startTime = Date.now();
 
   // If real API key is configured, call external LLM API
   if (apiKey && apiKey !== 'your-llm-api-key') {
@@ -45,30 +48,55 @@ export async function generateStructuredResponse<T>(
         const jsonResult = await response.json();
         const textOutput = jsonResult.candidates?.[0]?.content?.parts?.[0]?.text;
         if (textOutput) {
+          logger.info('AI_REQUEST', 'External LLM call completed successfully', {
+            durationMs: Date.now() - startTime,
+            workflowKey: 'GEMINI_LLM',
+          });
           return JSON.parse(textOutput) as T;
         }
       }
-    } catch (error) {
-      console.warn('[AI_PROVIDER_WARNING] External LLM call failed or timed out. Falling back to local intelligence parser.', error);
+    } catch (error: any) {
+      logger.warn('AI_FALLBACK_USED', 'External LLM call failed or timed out. Falling back to local intelligence parser.', {
+        error: error.message,
+        durationMs: Date.now() - startTime,
+      });
     }
   }
 
   // Fallback Rule-Based Parser for local demo evaluation & offline testing when API key is unconfigured
+  logger.info('AI_FALLBACK_USED', 'Using deterministic fallback intelligence parser');
   return parseNaturalLanguagePromptLocally(prompt) as T;
 }
 
 /**
  * Local Deterministic Intent & Field Extractor (Fallback Engine)
  * 
- * CORE PRINCIPLE:
- * INFER INTENT AGGRESSIVELY, BUT INFER FACTS CONSERVATIVELY.
- * - Match workflow intent from natural language.
- * - Extract explicit facts and safe semantic inferences.
- * - NEVER fabricate user-provided facts (dates, venues, participant counts,
- *   unmentioned rooms, scholarship types/income, etc.).
+ * CORE PRINCIPLES:
+ * 1. INFER INTENT AGGRESSIVELY, BUT INFER FACTS CONSERVATIVELY.
+ * 2. PROMPT INJECTION DEFENSE: Treat user prompt as pure unstructured text data.
+ *    Adversarial overrides ("ignore rules", "make me admin", etc.) are safely neutralized.
  */
 function parseNaturalLanguagePromptLocally(prompt: string): Record<string, unknown> {
   const text = prompt.toLowerCase();
+
+  // Defense-in-depth: If prompt is purely an adversarial attempt to override system
+  if (
+    text.includes('ignore all previous instructions') ||
+    text.includes('ignore previous instructions') ||
+    text.includes('system override') ||
+    text.includes('grant me admin') ||
+    text.includes('make me admin') ||
+    text.includes('bypass approval') ||
+    text.includes('mark this request as approved')
+  ) {
+    return {
+      workflowKey: null,
+      intent: 'Adversarial instruction detected — prompt neutralized',
+      confidence: 0.1,
+      extractedData: {},
+      explanation: 'Input contains adversarial instructions and cannot be mapped to any legitimate campus workflow.',
+    };
+  }
 
   // 1. Certificate Requests & Student Verification Proofs
   if (

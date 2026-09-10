@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { executeWorkflowAction } from '@/lib/workflows/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
+import { checkRateLimit, getClientIdentifier, RATE_LIMIT_CONFIGS } from '@/lib/ratelimit';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export async function POST(
   req: Request,
@@ -9,20 +12,31 @@ export async function POST(
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
+    }
+
+    // Rate Limiting Protection
+    const rateLimitId = getClientIdentifier(req, user.id);
+    const rateLimit = checkRateLimit(rateLimitId, RATE_LIMIT_CONFIGS.WORKFLOW_ACTION);
+    if (!rateLimit.success) {
+      logger.security('RATE_LIMITED', `Rate limit exceeded for workflow action: ${rateLimitId}`, {
+        userId: user.id,
+        action: 'EXECUTE_WORKFLOW_ACTION',
+      });
+      return createErrorResponse(
+        'Too many workflow actions. Please wait a moment.',
+        'RATE_LIMITED',
+        429,
+        undefined,
+        { 'Retry-After': String(Math.ceil((rateLimit.reset - Date.now()) / 1000)) }
       );
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { action, reason, message, field, value } = body;
 
     if (!action) {
-      return NextResponse.json(
-        { success: false, error: '[VALIDATION_FAILED] Action name is required' },
-        { status: 400 }
-      );
+      return createErrorResponse('Action name is required', 'VALIDATION_ERROR', 400);
     }
 
     const result = await executeWorkflowAction({
@@ -35,22 +49,22 @@ export async function POST(
       value,
     });
 
+    logger.info('STATUS_CHANGED', `Workflow action "${action}" executed on request ${params.id}`, {
+      requestId: params.id,
+      userId: user.id,
+      action,
+    });
+
     return NextResponse.json({
       success: true,
       data: result,
       message: `Action "${action}" executed successfully`,
     });
-  } catch (error: any) {
-    const errMessage = error.message || 'Failed to execute workflow action';
-
-    let status = 500;
-    if (errMessage.includes('[FORBIDDEN]')) status = 403;
-    else if (errMessage.includes('[REQUEST_NOT_FOUND]') || errMessage.includes('[USER_NOT_FOUND]')) status = 404;
-    else if (errMessage.includes('[VALIDATION_FAILED]') || errMessage.includes('[INVALID_ACTION]') || errMessage.includes('[INVALID_STEP]')) status = 400;
-
-    return NextResponse.json(
-      { success: false, error: errMessage },
-      { status }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', `POST /api/requests/${params.id}/actions failed`, {
+      requestId: params.id,
+      error: String(error),
+    });
+    return handleApiError(error, 'Failed to execute workflow action');
   }
 }

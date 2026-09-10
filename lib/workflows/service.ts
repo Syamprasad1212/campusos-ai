@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { WORKFLOW_DEFINITIONS } from './definitions';
 import { notifyWorkflowEvent, WorkflowEventType } from '@/lib/notifications/service';
+import { logger } from '@/lib/observability/logger';
 import {
   WorkflowDefinition,
   ValidationResult,
@@ -96,10 +97,11 @@ export function validateWorkflowData(
 }
 
 /**
- * Transaction-safe workflow request creation
+ * Transaction-safe workflow request creation with User-Scoped Idempotency
  */
 export async function createWorkflowRequest(input: CreateRequestInput) {
-  const { requesterId, workflowKey, title, summary, data } = input;
+  const { requesterId, workflowKey, title, summary, data, idempotencyKey } = input;
+  const startTime = Date.now();
 
   const wfDef = getWorkflowByKey(workflowKey);
   if (!wfDef) {
@@ -110,6 +112,35 @@ export async function createWorkflowRequest(input: CreateRequestInput) {
   if (!validation.valid) {
     const errorMsg = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
     throw new Error(`[VALIDATION_FAILED] Request data validation failed: ${errorMsg}`);
+  }
+
+  // User-scoped Idempotency Check:
+  // Strictly scoped to the authenticated student/requester ID.
+  const scopedIdempotencyKey = idempotencyKey
+    ? `user_${requesterId}:${idempotencyKey}`
+    : undefined;
+
+  if (scopedIdempotencyKey) {
+    const existingReqData = await db.requestData.findFirst({
+      where: {
+        request: { studentId: requesterId },
+        metadata: {
+          path: ['idempotencyKey'],
+          equals: scopedIdempotencyKey,
+        },
+      },
+      include: { request: true },
+    });
+
+    if (existingReqData?.request) {
+      logger.info('REQUEST_CREATED', `Idempotent request replay returned existing request ${existingReqData.request.id}`, {
+        requestId: existingReqData.request.id,
+        userId: requesterId,
+        workflowKey,
+        durationMs: Date.now() - startTime,
+      });
+      return existingReqData.request;
+    }
   }
 
   const newReq = await db.$transaction(
@@ -184,6 +215,7 @@ export async function createWorkflowRequest(input: CreateRequestInput) {
       data: {
         requestId: request.id,
         formData: JSON.parse(JSON.stringify(data)),
+        metadata: scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : undefined,
       },
     });
 
@@ -231,6 +263,13 @@ export async function createWorkflowRequest(input: CreateRequestInput) {
 
     return request;
   }, { maxWait: 15000, timeout: 25000 });
+
+  logger.info('REQUEST_CREATED', `Request created successfully: ${newReq.id} (${workflowKey})`, {
+    requestId: newReq.id,
+    userId: requesterId,
+    workflowKey,
+    durationMs: Date.now() - startTime,
+  });
 
   // Post-Transaction Non-Blocking Notification Side Effect
   notifyWorkflowEvent({

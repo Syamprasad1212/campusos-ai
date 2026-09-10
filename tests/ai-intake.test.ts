@@ -3,7 +3,7 @@ import { getWorkflowByKey } from '../lib/workflows/definitions';
 import { validateWorkflowData } from '../lib/workflows/service';
 import { UserSession } from '../types';
 
-async function runAiIntakeTests() {
+export async function runAiIntakeTests() {
   console.log('🧪 Starting CampusOS AI Intake Agent & Workflow Intelligence Tests...\n');
   let passed = 0;
   let failed = 0;
@@ -241,4 +241,6 @@ async function runAiIntakeTests() {
   }
 }
 
-runAiIntakeTests();
+if (require.main === module) {
+  runAiIntakeTests();
+}

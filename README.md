@@ -1,58 +1,59 @@
-# CampusOS AI
+# CampusOS AI — Enterprise University Workflow & Operations Platform
 
 > **"Describe what you need. CampusOS gets it done."**
 
-CampusOS AI is an AI-powered university and campus workflow automation platform. It simplifies student and faculty requests by automatically matching natural language intents to configured campus workflows, routing them to the correct university department, creating staff action tasks, managing human reviews/approvals, and enabling real-time completion tracking.
+CampusOS AI is an enterprise operations platform for higher education institutions that automates student service requests, departmental task routing, document intelligence, multi-tier approvals, and real-time status tracking.
 
 ---
 
-## 🏗️ Architecture Status (Stage 1 - Foundation)
+## 🏛️ Core Principles
 
-| Component | Status | Details |
-| :--- | :--- | :--- |
-| **Foundation Layout & Navigation Shell** | **Implemented** | Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide React icons |
-| **Student Portal Shell** | **Implemented** | Natural language request prompt preview & active request tracking |
-| **Staff Portal Shell** | **Implemented** | Departmental work queue UI shell & action table |
-| **Admin Portal Shell** | **Implemented** | University administration dashboard & workflow definition registry |
-| **Prisma Schema & Core Entities** | **Implemented** | Models for User, Department, Workflow, WorkflowStep, Request, RequestData, Task, Approval, Document, Notification, AuditLog, AgentRun |
-| **Server-Side Authorization Boundaries** | **Implemented** | Role-based permission helpers (`STUDENT`, `FACULTY`, `STAFF`, `DEPARTMENT_ADMIN`, `UNIVERSITY_ADMIN`) |
-| **Workflow Configuration Registry** | **Implemented** | Data-driven definition templates for 13 campus workflows across 5 patterns |
-| **AI Service Abstraction Stub** | **Implemented** | Read-only intent classification contract (enforces AI schema validation & non-mutation rule) |
-| **Workflow Engine & Execution** | *Planned (Stage 2)* | Dynamic step execution, automated routing logic |
-| **AI Agent & LLM Tool Calling** | *Planned (Stage 3)* | External LLM API integration with structured JSON output schemas |
+1. **AI = Intelligence**: Natural language understanding, conservative fact extraction, advisory synthesis, and notification drafting.
+2. **Workflow Engine = Source of Truth**: 13 configured campus workflows across 5 patterns governing all state transitions.
+3. **Database = Transactional Integrity**: ACID-compliant multi-table operations wrapped in Prisma transactions.
+4. **RBAC = Security Boundary**: Server-derived identity and granular role/department access boundaries.
+5. **Human = Final Authority**: Human staff and department administrators hold exclusive approval/rejection authority.
 
 ---
 
-## 🛠️ Technology Stack
+## 👥 Real Demo Accounts (Supabase Auth)
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Database & ORM**: PostgreSQL & Prisma ORM
-- **Authentication**: Supabase Auth / NextAuth integration ready
-- **Environment**: `.env` driven secrets management
+| Role | Name | Email | Password | Department | Primary Portal |
+|---|---|---|---|---|---|
+| **Student** | Alex Chen | `alex.student@campus.edu` | `CampusOS@2026!` | Computer Science | `/dashboard` |
+| **Faculty** | Dr. Sarah Jenkins | `sarah.faculty@campus.edu` | `CampusOS@2026!` | Computer Science | `/dashboard` |
+| **Staff** | Mark Davis | `mark.staff@campus.edu` | `CampusOS@2026!` | Registrar Office | `/staff/dashboard` |
+| **Staff** | David Miller | `david.staff@campus.edu` | `CampusOS@2026!` | Student Affairs | `/staff/dashboard` |
+| **Dept Admin** | Dr. Robert Taylor | `dean.registrar@campus.edu` | `CampusOS@2026!` | Registrar Office | `/admin/dashboard` |
+| **Univ Admin** | Dr. Emily Watson | `admin.provost@campus.edu` | `CampusOS@2026!` | Central University | `/admin/dashboard` |
 
 ---
 
-## ⚙️ Environment Variables
+## ⚡ Key Features
 
-Copy `.env.example` to `.env` before running the project:
+- **Natural-Language AI Intake**: Aggressive intent inference with strict conservative fact extraction (*never fabricates user facts*).
+- **Targeted Missing Field Clarification**: Automatically prompts students only for missing required fields when requests are incomplete.
+- **Departmental Work Queue**: Real-time staff queue filtering requests strictly by authorized department.
+- **Document Intelligence**: Private Supabase Storage with signed short-lived URLs, file validation, and automated advisory extraction.
+- **AI Approval Advisory**: Rule-gated policy verification and risk rating for administrators (*AI cannot mutate state or approve*).
+- **Multi-Tier Approvals & Self-Approval Prevention**: Strict enforcement that requesters cannot approve their own submissions.
+- **Idempotency & Rate Limiting**: User-scoped request idempotency and instance-local burst protection returning HTTP 429.
+- **Audit Logging & Timeline**: Immutable audit events rendered in a unified student timeline.
 
-```bash
-# Database (PostgreSQL / Supabase)
-DATABASE_URL="postgresql://postgres:password@localhost:5432/campusos_ai?schema=public"
-DIRECT_URL="postgresql://postgres:password@localhost:5432/campusos_ai?schema=public"
+---
 
-# Auth (Supabase Auth / NextAuth)
-SUPABASE_URL="https://your-project.supabase.co"
-SUPABASE_ANON_KEY="your-supabase-anon-key"
-SUPABASE_SERVICE_ROLE_KEY="your-supabase-service-role-key"
+## 📚 Technical Documentation
 
-# AI Service (External LLM API)
-LLM_API_KEY="your-llm-api-key"
-LLM_MODEL="gemini-1.5-pro"
-```
+Detailed documentation is available in the [`docs/`](docs/) directory:
+- [System Architecture](docs/ARCHITECTURE.md)
+- [End-to-End System Flow](docs/SYSTEM-FLOW.md)
+- [Security Threat Model (T1–T12)](docs/SECURITY.md)
+- [Responsible AI & Safety](docs/AI-SAFETY.md)
+- [Failure Handling & Reliability](docs/FAILURE-HANDLING.md)
+- [Observability & Logging](docs/OBSERVABILITY.md)
+- [Scalability & Background Processing Strategy](docs/SCALABILITY.md)
+- [Deployment & Environment Setup](docs/DEPLOYMENT.md)
+- [Known Limitations & Design Boundaries](docs/KNOWN-LIMITATIONS.md)
 
 ---
 
@@ -63,66 +64,24 @@ LLM_MODEL="gemini-1.5-pro"
 npm install
 ```
 
-### 2. Validate Prisma Schema & Generate Client
+### 2. Generate Prisma Client
 ```bash
-npx prisma validate
 npx prisma generate
 ```
 
-### 3. Type Checking
+### 3. Run Test Suite
 ```bash
-npx tsc --noEmit
+npm test
 ```
 
-### 4. Build Project
+### 4. Build Production Bundle
 ```bash
 npm run build
 ```
 
-### 5. Run Development Server
+### 5. Start Development Server
 ```bash
 npm run dev
 ```
-
 Open `http://localhost:3000` in your browser.
 
----
-
-## 📐 Project Structure
-
-```
-campusos-ai/
-├── app/
-│   ├── (admin)/
-│   │   ├── dashboard/page.tsx
-│   │   └── layout.tsx
-│   ├── (staff)/
-│   │   ├── dashboard/page.tsx
-│   │   └── layout.tsx
-│   ├── (student)/
-│   │   ├── dashboard/page.tsx
-│   │   └── layout.tsx
-│   ├── api/
-│   │   └── health/route.ts
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
-├── components/
-│   └── ui/
-│       └── navigation.tsx
-├── lib/
-│   ├── ai/index.ts
-│   ├── db/index.ts
-│   ├── permissions/index.ts
-│   └── workflows/definitions.ts
-├── prisma/
-│   └── schema.prisma
-├── types/
-│   └── index.ts
-├── .env.example
-├── .env
-├── package.json
-├── README.md
-├── tailwind.config.js
-└── tsconfig.json
-```

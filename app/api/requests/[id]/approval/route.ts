@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { executeWorkflowAction } from '@/lib/workflows/service';
+import { checkRateLimit, getClientIdentifier, RATE_LIMIT_CONFIGS } from '@/lib/ratelimit';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export async function POST(
   req: Request,
@@ -9,17 +12,31 @@ export async function POST(
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
+    }
+
+    // Rate Limiting Protection
+    const rateLimitId = getClientIdentifier(req, user.id);
+    const rateLimit = checkRateLimit(rateLimitId, RATE_LIMIT_CONFIGS.WORKFLOW_ACTION);
+    if (!rateLimit.success) {
+      logger.security('RATE_LIMITED', `Rate limit exceeded for approval decision: ${rateLimitId}`, {
+        userId: user.id,
+        action: 'APPROVAL_DECISION',
+      });
+      return createErrorResponse(
+        'Too many approval attempts. Please wait a moment.',
+        'RATE_LIMITED',
+        429,
+        undefined,
+        { 'Retry-After': String(Math.ceil((rateLimit.reset - Date.now()) / 1000)) }
+      );
     }
 
     const body = await req.json().catch(() => ({}));
     const { action, reason } = body;
 
     if (!action || (action !== 'APPROVE' && action !== 'REJECT')) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid approval action. Must be "APPROVE" or "REJECT".' },
-        { status: 400 }
-      );
+      return createErrorResponse('Invalid approval action. Must be "APPROVE" or "REJECT".', 'VALIDATION_ERROR', 400);
     }
 
     const updatedRequest = await executeWorkflowAction({
@@ -29,22 +46,21 @@ export async function POST(
       reason,
     });
 
+    logger.info('APPROVAL_COMPLETED', `Approval decision "${action}" executed on request ${params.id}`, {
+      requestId: params.id,
+      userId: user.id,
+      action,
+    });
+
     return NextResponse.json({
       success: true,
       data: updatedRequest,
     });
-  } catch (error: any) {
-    const status = error.message.includes('[FORBIDDEN]')
-      ? 403
-      : error.message.includes('[VALIDATION_FAILED]')
-      ? 400
-      : error.message.includes('[REQUEST_NOT_FOUND]')
-      ? 404
-      : 500;
-
-    return NextResponse.json(
-      { success: false, error: error.message || 'Failed to process approval action' },
-      { status }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', `POST /api/requests/${params.id}/approval failed`, {
+      requestId: params.id,
+      error: String(error),
+    });
+    return handleApiError(error, 'Failed to process approval action');
   }
 }

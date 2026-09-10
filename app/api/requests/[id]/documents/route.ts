@@ -4,6 +4,9 @@ import { createSignedDocumentUrl } from '@/lib/storage/documents';
 import { getCurrentAppUser } from '@/lib/auth/session';
 import { canAccessRequest } from '@/lib/permissions';
 import { db } from '@/lib/db';
+import { checkRateLimit, getClientIdentifier, RATE_LIMIT_CONFIGS } from '@/lib/ratelimit';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export async function POST(
   req: Request,
@@ -12,9 +15,23 @@ export async function POST(
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
+    }
+
+    // Rate Limiting Protection
+    const rateLimitId = getClientIdentifier(req, user.id);
+    const rateLimit = checkRateLimit(rateLimitId, RATE_LIMIT_CONFIGS.DOCUMENT_UPLOAD);
+    if (!rateLimit.success) {
+      logger.security('RATE_LIMITED', `Rate limit exceeded for document upload: ${rateLimitId}`, {
+        userId: user.id,
+        action: 'DOCUMENT_UPLOAD',
+      });
+      return createErrorResponse(
+        'Too many document uploads. Please wait a moment.',
+        'RATE_LIMITED',
+        429,
+        undefined,
+        { 'Retry-After': String(Math.ceil((rateLimit.reset - Date.now()) / 1000)) }
       );
     }
 
@@ -23,10 +40,7 @@ export async function POST(
     const documentType = (formData.get('documentType') as string) || undefined;
 
     if (!file) {
-      return NextResponse.json(
-        { success: false, error: '[VALIDATION_FAILED] No file uploaded in request' },
-        { status: 400 }
-      );
+      return createErrorResponse('No file uploaded in request', 'VALIDATION_ERROR', 400);
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -41,6 +55,11 @@ export async function POST(
       documentType,
     });
 
+    logger.info('DOCUMENT_UPLOADED', `Document uploaded for request ${params.id}: ${file.name}`, {
+      requestId: params.id,
+      userId: user.id,
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -49,18 +68,12 @@ export async function POST(
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    const errMessage = error.message || 'Failed to process document upload';
-
-    let status = 500;
-    if (errMessage.includes('[FORBIDDEN]')) status = 403;
-    else if (errMessage.includes('[REQUEST_NOT_FOUND]') || errMessage.includes('[USER_NOT_FOUND]')) status = 404;
-    else if (errMessage.includes('[VALIDATION_FAILED]') || errMessage.includes('[STORAGE_ERROR]')) status = 400;
-
-    return NextResponse.json(
-      { success: false, error: errMessage },
-      { status }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', `POST /api/requests/${params.id}/documents failed`, {
+      requestId: params.id,
+      error: String(error),
+    });
+    return handleApiError(error, 'Failed to process document upload');
   }
 }
 

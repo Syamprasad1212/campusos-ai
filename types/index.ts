@@ -101,6 +101,7 @@ export interface CreateRequestInput {
   title?: string;
   summary?: string;
   data: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 export interface TimelineEvent {

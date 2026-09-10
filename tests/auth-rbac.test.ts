@@ -1,7 +1,7 @@
 import { canAccessRequest, assertPermission, isUniversityAdmin, isDepartmentAdmin, isDepartmentStaff } from '../lib/permissions';
 import { UserSession } from '../types';
 
-function runAuthRbacTests() {
+export function runAuthRbacTests() {
   console.log('🧪 Starting CampusOS AI Auth & RBAC Security Tests...\n');
   let passed = 0;
   let failed = 0;
@@ -165,4 +165,6 @@ function runAuthRbacTests() {
   }
 }
 
-runAuthRbacTests();
+if (require.main === module) {
+  runAuthRbacTests();
+}

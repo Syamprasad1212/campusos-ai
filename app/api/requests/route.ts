@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { createWorkflowRequest } from '@/lib/workflows/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
-import { canAccessRequest } from '@/lib/permissions';
+import { checkRateLimit, getClientIdentifier, RATE_LIMIT_CONFIGS } from '@/lib/ratelimit';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -11,14 +13,13 @@ export async function GET(req: Request) {
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
-      );
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
     }
 
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get('status');
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10), 1), 200);
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
 
     // Build database-level RBAC where filter
     const whereClause: Record<string, any> = {};
@@ -46,7 +47,8 @@ export async function GET(req: Request) {
         tasks: { include: { assignee: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      take: limit,
+      skip: offset,
     });
 
     return NextResponse.json(
@@ -60,11 +62,9 @@ export async function GET(req: Request) {
         },
       }
     );
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch requests' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', 'GET /api/requests failed', { error: String(error) });
+    return handleApiError(error, 'Failed to fetch requests');
   }
 }
 
@@ -72,19 +72,34 @@ export async function POST(req: Request) {
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
+    }
+
+    // Rate Limiting Protection
+    const rateLimitId = getClientIdentifier(req, user.id);
+    const rateLimit = checkRateLimit(rateLimitId, RATE_LIMIT_CONFIGS.REQUEST_CREATION);
+    if (!rateLimit.success) {
+      logger.security('RATE_LIMITED', `Rate limit exceeded for request creation: ${rateLimitId}`, {
+        userId: user.id,
+        action: 'CREATE_REQUEST',
+      });
+      return createErrorResponse(
+        'Too many request creations. Please wait a moment.',
+        'RATE_LIMITED',
+        429,
+        undefined,
+        { 'Retry-After': String(Math.ceil((rateLimit.reset - Date.now()) / 1000)) }
       );
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
 
     // Security Rule: Overwrite requesterId with authenticated user ID
     // Do NOT trust client-provided requesterId or role!
     const createInput = {
       ...body,
       requesterId: user.id,
+      idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
     };
 
     const result = await createWorkflowRequest(createInput);
@@ -97,13 +112,8 @@ export async function POST(req: Request) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    const message = error.message || 'Failed to create workflow request';
-    const isValidation = message.includes('[VALIDATION_FAILED]') || message.includes('[WORKFLOW_NOT_FOUND]');
-    
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: isValidation ? 400 : 500 }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', 'POST /api/requests failed', { error: String(error) });
+    return handleApiError(error, 'Failed to create workflow request');
   }
 }

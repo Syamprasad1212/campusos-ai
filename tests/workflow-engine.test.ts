@@ -10,7 +10,7 @@ import {
 import { canAccessRequest, assertPermission } from '../lib/permissions';
 import { UserSession } from '../types';
 
-function runTests() {
+export function runWorkflowEngineTests() {
   console.log('🧪 Starting CampusOS AI Workflow Engine Unit & Security Tests...\n');
   let passed = 0;
   let failed = 0;
@@ -124,4 +124,6 @@ function runTests() {
   }
 }
 
-runTests();
+if (require.main === module) {
+  runWorkflowEngineTests();
+}

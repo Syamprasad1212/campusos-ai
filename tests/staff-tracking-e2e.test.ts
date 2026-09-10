@@ -4,7 +4,7 @@ import { canAccessRequest } from '../lib/permissions';
 import { UserSession } from '../types';
 import { db } from '../lib/db';
 
-async function runStaffTrackingE2eTests() {
+export async function runStaffTrackingE2eTests() {
   console.log('🧪 Starting CampusOS AI Stage 5 Staff Operations & End-to-End Tracking Tests...\n');
   let passed = 0;
   let failed = 0;
@@ -407,9 +407,9 @@ async function runStaffTrackingE2eTests() {
   } catch (err: any) {
     console.error('❌ Test Execution Error:', err);
     process.exit(1);
-  } finally {
-    await db.$disconnect();
   }
 }
 
-runStaffTrackingE2eTests();
+if (require.main === module) {
+  runStaffTrackingE2eTests();
+}

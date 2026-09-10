@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAuthorizedDocumentUrl } from '@/lib/documents/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export async function GET(
   req: Request,
@@ -9,10 +11,7 @@ export async function GET(
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
-      );
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
     }
 
     const result = await getAuthorizedDocumentUrl(params.id, user);
@@ -21,15 +20,8 @@ export async function GET(
       success: true,
       data: result,
     });
-  } catch (error: any) {
-    const errMessage = error.message || 'Failed to fetch document';
-    let status = 500;
-    if (errMessage.includes('[FORBIDDEN]')) status = 403;
-    else if (errMessage.includes('[DOCUMENT_NOT_FOUND]')) status = 404;
-
-    return NextResponse.json(
-      { success: false, error: errMessage },
-      { status }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', `GET /api/documents/${params.id} failed`, { error: String(error) });
+    return handleApiError(error, 'Failed to fetch document');
   }
 }

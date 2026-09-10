@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { verifyDocumentByStaff } from '@/lib/documents/service';
 import { getCurrentAppUser } from '@/lib/auth/session';
+import { checkRateLimit, getClientIdentifier, RATE_LIMIT_CONFIGS } from '@/lib/ratelimit';
+import { handleApiError, createErrorResponse } from '@/lib/errors';
+import { logger } from '@/lib/observability/logger';
 
 export async function POST(
   req: Request,
@@ -9,20 +12,31 @@ export async function POST(
   try {
     const user = await getCurrentAppUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthenticated' },
-        { status: 401 }
+      return createErrorResponse('Unauthenticated', 'UNAUTHENTICATED', 401);
+    }
+
+    // Rate Limiting Protection
+    const rateLimitId = getClientIdentifier(req, user.id);
+    const rateLimit = checkRateLimit(rateLimitId, RATE_LIMIT_CONFIGS.WORKFLOW_ACTION);
+    if (!rateLimit.success) {
+      logger.security('RATE_LIMITED', `Rate limit exceeded for document verification: ${rateLimitId}`, {
+        userId: user.id,
+        action: 'VERIFY_DOCUMENT',
+      });
+      return createErrorResponse(
+        'Too many document verification actions. Please wait a moment.',
+        'RATE_LIMITED',
+        429,
+        undefined,
+        { 'Retry-After': String(Math.ceil((rateLimit.reset - Date.now()) / 1000)) }
       );
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { status, reason } = body;
 
     if (!status || (status !== 'VERIFIED' && status !== 'REJECTED')) {
-      return NextResponse.json(
-        { success: false, error: '[VALIDATION_FAILED] Verification status must be VERIFIED or REJECTED' },
-        { status: 400 }
-      );
+      return createErrorResponse('Verification status must be VERIFIED or REJECTED', 'VALIDATION_ERROR', 400);
     }
 
     const result = await verifyDocumentByStaff({
@@ -32,21 +46,18 @@ export async function POST(
       reason,
     });
 
+    logger.info(status === 'VERIFIED' ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_REJECTED', `Document ${params.id} ${status} by staff ${user.id}`, {
+      userId: user.id,
+      action: status,
+    });
+
     return NextResponse.json({
       success: true,
       data: result,
       message: `Document status updated to ${status}`,
     });
-  } catch (error: any) {
-    const errMessage = error.message || 'Failed to verify document';
-    let httpStatus = 500;
-    if (errMessage.includes('[FORBIDDEN]')) httpStatus = 403;
-    else if (errMessage.includes('[DOCUMENT_NOT_FOUND]') || errMessage.includes('[USER_NOT_FOUND]')) httpStatus = 404;
-    else if (errMessage.includes('[VALIDATION_FAILED]')) httpStatus = 400;
-
-    return NextResponse.json(
-      { success: false, error: errMessage },
-      { status: httpStatus }
-    );
+  } catch (error: unknown) {
+    logger.error('API_ERROR', `POST /api/documents/${params.id}/verify failed`, { error: String(error) });
+    return handleApiError(error, 'Failed to verify document');
   }
 }

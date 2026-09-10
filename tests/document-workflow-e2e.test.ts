@@ -5,7 +5,7 @@ import { canAccessRequest } from '../lib/permissions';
 import { UserSession } from '../types';
 import { db } from '../lib/db';
 
-async function runDocumentWorkflowE2eTests() {
+export async function runDocumentWorkflowE2eTests() {
   console.log('🧪 Starting CampusOS AI Stage 6 Document Intelligence & Security Tests...\n');
   let passed = 0;
   let failed = 0;
@@ -247,9 +247,9 @@ async function runDocumentWorkflowE2eTests() {
   } catch (err: any) {
     console.error('❌ Stage 6 Test Execution Error:', err);
     process.exit(1);
-  } finally {
-    await db.$disconnect();
   }
 }
 
-runDocumentWorkflowE2eTests();
+if (require.main === module) {
+  runDocumentWorkflowE2eTests();
+}
