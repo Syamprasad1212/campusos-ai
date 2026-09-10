@@ -110,9 +110,9 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [docRejectReason, setDocRejectReason] = useState('');
 
-  const fetchRequestDetails = async () => {
+  const fetchRequestDetails = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const res = await fetch(`/api/requests/${params.id}`);
       const json = await res.json();
@@ -130,7 +130,7 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
     } catch (err: any) {
       setError(err.message || 'Error loading request');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -161,7 +161,7 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
       setRejectReason('');
       setInfoMessage('');
       setInfoField('');
-      await fetchRequestDetails();
+      await fetchRequestDetails(true);
     } catch (err: any) {
       setError(err.message || 'Failed to perform action');
     } finally {
@@ -190,7 +190,7 @@ export default function StaffRequestDetailPage({ params }: { params: { id: strin
       setActiveModal('NONE');
       setSelectedDocId(null);
       setDocRejectReason('');
-      await fetchRequestDetails();
+      await fetchRequestDetails(true);
     } catch (err: any) {
       setError(err.message || 'Error updating document verification');
     } finally {

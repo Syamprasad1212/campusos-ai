@@ -90,9 +90,9 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [docTypeSelection, setDocTypeSelection] = useState('STUDENT_ID');
 
-  const fetchDetails = async () => {
+  const fetchDetails = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       
       const res = await fetch(`/api/requests/${params.id}`);
@@ -111,10 +111,9 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
     } catch (err: any) {
       setError(err.message || 'Error loading request');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
-
 
   useEffect(() => {
     fetchDetails();
@@ -133,21 +132,31 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
       formData.append('file', uploadFile);
       formData.append('documentType', docTypeSelection);
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch(`/api/requests/${params.id}/documents`, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Failed to upload document');
+        throw new Error(json.error || json.message || 'Failed to upload document');
       }
 
-      setSuccessMsg('Document uploaded and processed successfully!');
+      setSuccessMsg('Document uploaded successfully! Verification pending by department staff.');
       setUploadFile(null);
-      await fetchDetails();
+      await fetchDetails(true);
     } catch (err: any) {
-      setError(err.message || 'Document upload error');
+      if (err.name === 'AbortError') {
+        setError('Upload timed out. Please check your network connection and try again.');
+      } else {
+        setError(err.message || 'Document upload error');
+      }
     } finally {
       setUploadLoading(false);
     }
@@ -302,24 +311,73 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
         </div>
       </div>
 
-      {/* Mandatory Document Action Required Banner */}
-      {currentStepDef?.requiresDocuments && documents.filter(d => d.verificationStatus === 'VERIFIED').length === 0 && request.status !== 'COMPLETED' && request.status !== 'REJECTED' && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 shadow-sm space-y-2">
-          <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
-            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
-            <span>Action Required: Mandatory Document Needed for Step {request.currentStep}</span>
+      {/* Mandatory Document Action / Status Banners */}
+      {currentStepDef?.requiresDocuments && request.status !== 'COMPLETED' && request.status !== 'REJECTED' && (() => {
+        const hasVerifiedDoc = documents.some((d) => d.verificationStatus === 'VERIFIED');
+        const hasPendingDoc = documents.some((d) => d.verificationStatus === 'NEEDS_REVIEW');
+        const rejectedDoc = documents.find((d) => d.verificationStatus === 'REJECTED');
+        const hasOnlyRejected = Boolean(rejectedDoc) && !hasVerifiedDoc && !hasPendingDoc;
+
+        if (hasVerifiedDoc) {
+          return (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-5 shadow-sm space-y-1.5">
+              <div className="flex items-center gap-2 text-emerald-950 font-bold text-sm">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <span>Step {request.currentStep} Requirements Satisfied: Document Verified</span>
+              </div>
+              <p className="text-xs text-emerald-800 leading-relaxed">
+                Your required document has been verified by staff. Step {request.currentStep} ({currentStepDef?.name}) verification is satisfied.
+              </p>
+            </div>
+          );
+        }
+
+        if (hasPendingDoc) {
+          return (
+            <div className="rounded-xl border border-sky-300 bg-sky-50 p-5 shadow-sm space-y-1.5">
+              <div className="flex items-center gap-2 text-sky-950 font-bold text-sm">
+                <Clock className="h-5 w-5 text-sky-600 shrink-0" />
+                <span>Document Uploaded • Verification Pending</span>
+              </div>
+              <p className="text-xs text-sky-800 leading-relaxed">
+                Your document has been uploaded and is waiting for manual staff verification at Step {request.currentStep} ({currentStepDef?.name}). No further student action is required at this moment.
+              </p>
+            </div>
+          );
+        }
+
+        if (hasOnlyRejected) {
+          return (
+            <div className="rounded-xl border border-red-300 bg-red-50 p-5 shadow-sm space-y-1.5">
+              <div className="flex items-center gap-2 text-red-950 font-bold text-sm">
+                <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+                <span>Action Required: Document Rejected — New Upload Needed</span>
+              </div>
+              <p className="text-xs text-red-800 leading-relaxed">
+                Your uploaded document was rejected by staff{rejectedDoc?.notes ? `: "${rejectedDoc.notes}"` : '.'} Please upload a valid replacement copy below.
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 shadow-sm space-y-2">
+            <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+              <span>Action Required: Mandatory Document Needed for Step {request.currentStep}</span>
+            </div>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              {request.workflow.key === 'CERTIFICATE_REQUEST'
+                ? 'Application information complete. Please upload your Student ID Card / Valid ID Proof below. Staff cannot complete Step 1 (Record & Document Verification) until your document is uploaded and verified.'
+                : request.workflow.key === 'SCHOLARSHIP_ASSISTANCE'
+                ? 'Application information complete. Please upload your Income Certificate / Marksheet below so the financial aid cell can audit your eligibility.'
+                : request.workflow.key === 'INTERNSHIP_DOCUMENTS'
+                ? 'Application information complete. Please upload your formal Internship Offer Letter below for placement officer verification.'
+                : 'Application information complete. Please upload the required supporting document below to proceed with step verification.'}
+            </p>
           </div>
-          <p className="text-xs text-amber-800 leading-relaxed">
-            {request.workflow.key === 'CERTIFICATE_REQUEST'
-              ? 'Please upload your Student ID Card / Valid ID Proof below. Staff cannot complete Step 1 (Record & Document Verification) until your document is uploaded and verified.'
-              : request.workflow.key === 'SCHOLARSHIP_ASSISTANCE'
-              ? 'Please upload your Income Certificate / Marksheet below so the financial aid cell can audit your eligibility.'
-              : request.workflow.key === 'INTERNSHIP_DOCUMENTS'
-              ? 'Please upload your formal Internship Offer Letter below for placement officer verification.'
-              : 'Please upload the required supporting document below to proceed with step verification.'}
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
 
       {/* Information Required Action Form Banner */}
@@ -373,10 +431,15 @@ export default function StudentRequestTrackingPage({ params }: { params: { id: s
           
           {/* Submitted Request Data */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
-              <FileText className="h-4 w-4 text-sky-600" />
-              Submitted Application Details
-            </h3>
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <FileText className="h-4 w-4 text-sky-600" />
+                Submitted Application Details
+              </h3>
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Application Details Complete
+              </span>
+            </div>
 
             {request.requestData?.formData && Object.keys(request.requestData.formData).length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">

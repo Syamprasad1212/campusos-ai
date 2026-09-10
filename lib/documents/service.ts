@@ -50,41 +50,11 @@ export async function processAndStoreDocument(input: UploadDocumentInput) {
     throw new Error(`[FORBIDDEN] You do not have permission to upload documents for this request.`);
   }
 
-  // 3. Generate Non-PII Storage Path (requests/{requestId}/{randomId}.ext)
-  const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'bin';
-  const randomId = crypto.randomUUID();
-  const storagePath = `requests/${requestId}/${randomId}.${fileExt}`;
-
-  // 4. Upload Buffer to Canonical Supabase Storage
-  await uploadDocumentToStorage({
-    fileBuffer,
-    mimeType,
-    storagePath,
-  });
-
-  // 5. Extract Text & Metadata
-  const extraction = await extractDocumentContent(fileBuffer, fileName, mimeType);
-
-  // 6. AI Document Intelligence Agent Classification & Extraction (Advisory)
-  const aiResult = await runDocumentAgent({
-    userId: user.id,
-    requestId,
-    fileName,
-    mimeType,
-    extractedText: extraction.rawText,
-    workflowCategory: request.workflow.category,
-  });
-
-  const finalDocType = input.documentType || aiResult.documentType;
-
-  // 7. Deterministic Application Validation
+  // 3. Pre-upload Deterministic Validation (File type and size limits)
   const validation = validateDocumentSubmission({
     fileName,
     fileType: mimeType,
     fileSize: fileBuffer.length,
-    aiDocumentType: finalDocType,
-    aiConfidence: aiResult.confidence,
-    extractedData: aiResult.extractedData,
     studentProfile: {
       id: user.id,
       name: user.name,
@@ -97,7 +67,45 @@ export async function processAndStoreDocument(input: UploadDocumentInput) {
     throw new Error(`[VALIDATION_FAILED] Document validation failed: ${errorMsg}`);
   }
 
-  // 8. Create Database Document Record
+  // 4. Generate Non-PII Storage Path (requests/{requestId}/{randomId}.ext)
+  const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'bin';
+  const randomId = crypto.randomUUID();
+  const storagePath = `requests/${requestId}/${randomId}.${fileExt}`;
+
+  // 5. Upload Buffer to Canonical Supabase Storage
+  await uploadDocumentToStorage({
+    fileBuffer,
+    mimeType,
+    storagePath,
+  });
+
+  // 6. Safe Text Extraction & Advisory AI Intelligence
+  let finalDocType = input.documentType || 'STUDENT_ID';
+  let extractedData: Record<string, unknown> = {};
+
+  try {
+    const extraction = await extractDocumentContent(fileBuffer, fileName, mimeType);
+    const aiResult = await runDocumentAgent({
+      userId: user.id,
+      requestId,
+      fileName,
+      mimeType,
+      extractedText: extraction.rawText,
+      workflowCategory: request.workflow.category,
+    });
+
+    if (aiResult) {
+      finalDocType = input.documentType || (aiResult.documentType !== 'UNKNOWN' ? aiResult.documentType : finalDocType);
+      extractedData = aiResult.extractedData || {};
+      if (aiResult.validationSuggestions && aiResult.validationSuggestions.length > 0) {
+        validation.warnings.push(...aiResult.validationSuggestions);
+      }
+    }
+  } catch (agentErr) {
+    // Non-blocking: AI failure falls back cleanly to deterministic defaults
+  }
+
+  // 7. Create Database Document Record (defaults to NEEDS_REVIEW for staff verification)
   const document = await db.document.create({
     data: {
       requestId,
@@ -108,13 +116,13 @@ export async function processAndStoreDocument(input: UploadDocumentInput) {
       documentType: finalDocType,
       storageReference: storagePath,
       verificationStatus: validation.status,
-      extractedData: JSON.parse(JSON.stringify(aiResult.extractedData)),
+      extractedData: JSON.parse(JSON.stringify(extractedData)),
       notes: validation.warnings.length > 0 ? validation.warnings.join('; ') : undefined,
       uploadedById: user.id,
     },
   });
 
-  // 9. Append Audit Log Entries
+  // 8. Append Audit Log Entries
   await db.auditLog.create({
     data: {
       requestId,

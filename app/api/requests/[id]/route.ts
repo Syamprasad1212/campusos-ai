@@ -49,22 +49,42 @@ export async function GET(
       );
     }
 
-    const [timeline, { getWorkflowByKey, getWorkflowRequirements }] = await Promise.all([
+    const [timeline, { getWorkflowByKey, getWorkflowRequirements }, { createSignedDocumentUrl }] = await Promise.all([
       getRequestTimeline(params.id),
       import('@/lib/workflows/service'),
+      import('@/lib/storage/documents'),
     ]);
 
     const workflowDefinition = getWorkflowByKey(request.workflow.key);
     const requirements = getWorkflowRequirements(request.workflow.key, request.currentStep);
 
+    // Generate signed download/view URLs for all attached documents
+    const documentsWithSignedUrls = await Promise.all(
+      (request.documents || []).map(async (doc) => {
+        let signedUrl = '';
+        try {
+          signedUrl = await createSignedDocumentUrl(doc.storageReference || doc.fileUrl, 3600);
+        } catch {
+          signedUrl = doc.fileUrl;
+        }
+        return {
+          ...doc,
+          signedUrl,
+        };
+      })
+    );
+
     return NextResponse.json({
       success: true,
       data: {
-        request,
+        request: {
+          ...request,
+          documents: documentsWithSignedUrls,
+        },
         workflowDefinition,
         requirements,
         timeline,
-        documents: request.documents || [],
+        documents: documentsWithSignedUrls,
       },
     });
 

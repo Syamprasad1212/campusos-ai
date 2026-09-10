@@ -53,17 +53,18 @@ ${input.extractedText.slice(0, 1500)}`;
       nextAction: string;
     }>(prompt, systemPrompt, { temperature: 0.1 });
 
-    let docType = (rawAiResult.documentType || 'UNKNOWN').toUpperCase() as DocumentAgentResult['documentType'];
+    let docType = (rawAiResult?.documentType || '').toUpperCase() as DocumentAgentResult['documentType'];
     if (!['STUDENT_ID', 'FEE_RECEIPT', 'IDENTITY_PROOF', 'SUPPORTING_DOCUMENT', 'CERTIFICATE'].includes(docType)) {
-      docType = 'UNKNOWN';
+      const localResult = parseDocumentLocally(input.fileName, input.extractedText);
+      docType = localResult.documentType;
     }
 
     aiOutput = {
       documentType: docType,
-      confidence: rawAiResult.confidence ?? 0.75,
-      extractedData: rawAiResult.extractedData || {},
-      validationSuggestions: rawAiResult.validationSuggestions || [],
-      nextAction: (rawAiResult.confidence ?? 0.75) < 0.60 ? 'NEEDS_REVIEW' : 'VERIFY',
+      confidence: rawAiResult?.confidence ?? 0.75,
+      extractedData: rawAiResult?.extractedData || {},
+      validationSuggestions: rawAiResult?.validationSuggestions || [],
+      nextAction: (rawAiResult?.confidence ?? 0.75) < 0.60 ? 'NEEDS_REVIEW' : 'VERIFY',
     };
   } catch (error) {
     // Fallback rule-based document classifier
